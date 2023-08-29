@@ -366,6 +366,84 @@ end
 
 
 ""
+function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACRModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
+    vr = var(pm, nw, :vr, i)
+    vi = var(pm, nw, :vi, i)
+    p    = get(var(pm, nw),    :p, Dict()); _check_var_keys(p, bus_arcs, "active power", "branch")
+    q    = get(var(pm, nw),    :q, Dict()); _check_var_keys(q, bus_arcs, "reactive power", "branch")
+    pg   = get(var(pm, nw),   :pg, Dict()); _check_var_keys(pg, bus_gens, "active power", "generator")
+    qg   = get(var(pm, nw),   :qg, Dict()); _check_var_keys(qg, bus_gens, "reactive power", "generator")
+    ps   = get(var(pm, nw),   :ps, Dict()); _check_var_keys(ps, bus_storage, "active power", "storage")
+    qs   = get(var(pm, nw),   :qs, Dict()); _check_var_keys(qs, bus_storage, "reactive power", "storage")
+    psw  = get(var(pm, nw),  :psw, Dict()); _check_var_keys(psw, bus_arcs_sw, "active power", "switch")
+    qsw  = get(var(pm, nw),  :qsw, Dict()); _check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
+    pt   = get(var(pm, nw),   :pt, Dict()); _check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
+    qt   = get(var(pm, nw),   :qt, Dict()); _check_var_keys(qt, bus_arcs_trans, "reactive power", "transformer")
+    p_slack_in = var(pm, nw, :p_slack_in, i)
+    p_slack_out = var(pm, nw, :p_slack_out, i)
+    q_slack_in = var(pm, nw, :q_slack_in, i)
+    q_slack_out = var(pm, nw, :q_slack_out, i)
+
+    Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
+
+    ncnds = length(terminals)
+    Pd = fill(0.0, ncnds)
+    Qd = fill(0.0, ncnds)
+    for (ld_i, connections) in bus_loads
+        load = ref(pm, nw, :load, ld_i)
+        for (idx, c) in enumerate(connections)
+            Pd[findfirst(isequal(c), terminals)] += load["pd"][idx]
+            Qd[findfirst(isequal(c), terminals)] += load["qd"][idx]
+        end
+    end
+
+    cstr_p = []
+    cstr_q = []
+
+    ungrounded_terminals = [(idx, t) for (idx, t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx, t) in ungrounded_terminals
+        crsh = sum(Gt[idx,jdx]*vr[s]-Bt[idx,jdx]*vi[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
+        cish = sum(Gt[idx,jdx]*vi[s]+Bt[idx,jdx]*vr[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
+        @infiltrate
+        cp = JuMP.@constraint(pm.model,
+            sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(pt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
+            ==
+            sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+            - Pd[idx]
+            - (vr.*(Gt*vr-Bt*vi) + vi.*(Gt*vi+Bt*vr))
+            + (p_slack_in[t] - p_slack_out[t])
+        )
+        push!(cstr_p, cp)
+
+        cq = JuMP.@constraint(pm.model,
+            sum(q[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(qsw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(qt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
+            ==
+              sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
+            + sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
+            - Qd[idx]
+            + ( vr[t] * cish - vi[t] * crsh)
+            + (q_slack_in[t] - q_slack_out[t])
+        )
+        push!(cstr_q, cq)
+    end
+
+    con(pm, nw, :lam_kcl_r)[i] = isa(cstr_p, Array) ? cstr_p : [cstr_p]
+    con(pm, nw, :lam_kcl_i)[i] = isa(cstr_q, Array) ? cstr_q : [cstr_q]
+
+    if _IM.report_duals(pm)
+        sol(pm, nw, :bus, i)[:lam_kcl_r] = cstr_p
+        sol(pm, nw, :bus, i)[:lam_kcl_i] = cstr_q
+    end
+end
+
+
+""
 function constraint_mc_power_balance_simple(pm::AbstractUnbalancedACRModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     vr = var(pm, nw, :vr, i)
     vi = var(pm, nw, :vi, i)

@@ -292,6 +292,45 @@ end
 
 
 """
+    constraint_mc_power_balance_slack(pm::AbstractUnbalancedPowerModel, i::Int; nw::Int=nw_id_default)::Nothing
+
+Template function for KCL constraints which include a slack power at every bus in two directions
+"""
+function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedPowerModel, i::Int; nw::Int=nw_id_default)::Nothing
+    bus = ref(pm, nw, :bus, i)
+    bus_arcs = ref(pm, nw, :bus_arcs_conns_branch, i)
+    bus_arcs_sw = ref(pm, nw, :bus_arcs_conns_switch, i)
+    bus_arcs_trans = ref(pm, nw, :bus_arcs_conns_transformer, i)
+    bus_gens = ref(pm, nw, :bus_conns_gen, i)
+    bus_storage = ref(pm, nw, :bus_conns_storage, i)
+    bus_loads = ref(pm, nw, :bus_conns_load, i)
+    bus_shunts = ref(pm, nw, :bus_conns_shunt, i)
+
+    if !haskey(con(pm, nw), :lam_kcl_r)
+        con(pm, nw)[:lam_kcl_r] = Dict{Int,Array{JuMP.ConstraintRef}}()
+    end
+
+    if !haskey(con(pm, nw), :lam_kcl_i)
+        con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
+    end
+
+    constraint_mc_power_balance_slack_L1(pm, nw, i, bus["terminals"], bus["grounded"], bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
+    nothing
+end
+
+# """
+#     constraint_mc_slack_bus_power_equity_weight(pm::AbstractUnbalancedPowerModel, i::Int; nw::Int=nw_id_default)::Nothing
+
+# Template function for constraints for equity weight values
+# """
+# function constraint_mc_slack_bus_power_equity_weight(pm::AbstractUnbalancedPowerModel, i::Int; nw::Int=nw_id_default)::Nothing
+#     # bus = ref(pm, nw, :bus, i)
+#     constraint_mc_slack_bus_power_equity_weight(pm, nw, i)
+#     nothing
+# end
+
+
+"""
     constraint_mc_power_balance_simple(pm::AbstractUnbalancedPowerModel, i::Int; nw::Int=nw_id_default)::Nothing
 
 Template function for KCL constraints for simple load shedding

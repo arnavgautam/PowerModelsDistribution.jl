@@ -204,11 +204,12 @@ function _init_dss_data(; current_file::Union{Missing,FilePaths.AbstractPath}=mi
     return data_dss
 end
 
-
 ""
 function _parse_dss_cmd_buscoords!(data_dss::DssRawModel, file::String, line_number::Int)::Nothing
+    file = "Long_lat_buscoords.txt"
     file_path = split(strip(file, ['(',')']), r"[\\|\/]")
     full_path = joinpath(data_dss.current_state.base_path, file_path...)
+    # @infiltrate
 
     @info "Reading Buscoords in '$(basename(full_path))' on line $(line_number) in '$(basename(data_dss.current_state.current_file))'"
     open(first(Glob.glob([Glob.FilenameMatch(basename(full_path), "i")], string(dirname(full_path)))), "r") do io
@@ -218,6 +219,21 @@ function _parse_dss_cmd_buscoords!(data_dss::DssRawModel, file::String, line_num
         end
     end
 end
+
+""
+# function _parse_dss_cmd_buscoords!(data_dss::DssRawModel, file::String, line_number::Int)::Nothing
+#     file_path = split(strip(file, ['(',')']), r"[\\|\/]")
+#     full_path = joinpath(data_dss.current_state.base_path, file_path...)
+#     # @infiltrate
+
+#     @info "Reading Buscoords in '$(basename(full_path))' on line $(line_number) in '$(basename(data_dss.current_state.current_file))'"
+#     open(first(Glob.glob([Glob.FilenameMatch(basename(full_path), "i")], string(dirname(full_path)))), "r") do io
+#         buscoords = _parse_dss_cmd_buscoords(io)
+#         for bc in buscoords
+#             push!(data_dss.buscoordinates, bc)
+#         end
+#     end
+# end
 
 
 ""
@@ -232,8 +248,20 @@ function _parse_dss_cmd_buscoords(io::IO)::Vector{DssBuscoords}
 end
 
 
+# ""
+# function _parse_dss_cmd_buscoords(io::IO)::Vector{DssBuscoords}
+#     buscoords = DssBuscoords[]
+#     for line in filter(x->!isempty(x), _strip_lines!(_sanatize_line.(readlines(io))))
+#         bus, x, y = split(line, _dss_cmd_buscoords_regex; limit=3)
+#         push!(buscoords, DssBuscoords(bus, parse(Float64, strip(x, [','])), parse(Float64, strip(y, [',', '\r']))))
+#     end
+
+#     return buscoords
+# end
+
+
 ""
-_parse_dss_cmd_latloncoords!(data_dss::DssRawModel, file::String, line_number::Int)::Vector{DssBuscoords} = _parse_dss_cmd_buscoords!(data_dss, file, line_number)
+_parse_dss_cmd_coords!(data_dss::DssRawModel, file::String, line_number::Int)::Vector{DssBuscoords} = _parse_dss_cmd_lon_lat_buscoords!(data_dss, file, line_number)
 
 
 ""

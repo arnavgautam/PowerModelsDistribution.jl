@@ -4,13 +4,29 @@
 a quadratic penalty for bus power slack variables
 """
 function objective_mc_min_slack_bus_power(pm::AbstractUnbalancedPowerModel)
+    # @infiltrate
     return JuMP.@objective(pm.model, Min,
         sum(
             sum(
                 sum( var(pm, n, :p_slack, i)[t]^2 + var(pm, n, :q_slack, i)[t]^2 for t in ref(pm, n, :bus, i, "terminals")
-                ) for (i,bus) in nw_ref[:bus]
+                ) * var(pm, n, :equity_weight, i) for (i,bus) in nw_ref[:bus]
             ) for (n, nw_ref) in nws(pm))
         )
+end
+
+"""
+objective_mc_min_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel)
+
+an L1 penalty for bus power slack variables
+"""
+function objective_mc_min_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel)
+return JuMP.@objective(pm.model, Min,
+    sum(
+        sum(
+            sum( var(pm, n, :p_slack_in, i)[t] + var(pm, n, :p_slack_out, i)[t] + var(pm, n, :q_slack_in, i)[t] + var(pm, n, :q_slack_out, i)[t] for t in ref(pm, n, :bus, i, "terminals")
+            ) * (i in axes(var(pm, n, :equity_weight))[1] ? var(pm, n, :equity_weight, i) : 0) for (i,bus) in nw_ref[:bus]
+        ) for (n, nw_ref) in nws(pm))
+    )
 end
 
 

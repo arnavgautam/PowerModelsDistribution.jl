@@ -792,6 +792,7 @@ end
 
 "create variables for generators, delegate to PowerModels"
 function variable_mc_generator_power(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, bounded::Bool=true, report::Bool=true)
+    # @infiltrate
     variable_mc_generator_power_real(pm; nw=nw, bounded=bounded, report=report)
     variable_mc_generator_power_imaginary(pm; nw=nw, bounded=bounded, report=report)
 end
@@ -1442,4 +1443,79 @@ function variable_mc_slack_bus_power_imaginary(pm::AbstractUnbalancedPowerModel;
     )
 
     report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack, ids(pm, nw, :bus), q_slack)
+end
+
+# slack power variables for TPIA L1 formulation
+
+"generates variables for both `active` and `reactive` slack at each bus going in each direction, making it linear"
+function variable_mc_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    variable_mc_slack_bus_power_real_L1(pm; nw=nw, report=report)
+    variable_mc_slack_bus_power_imaginary_L1(pm; nw=nw, report=report)
+end
+
+
+""
+function variable_mc_slack_bus_power_real_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    p_slack_in = var(pm, nw)[:p_slack_in] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_p_slack_in_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "p_slack_in_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :p_slack_in, ids(pm, nw, :bus), p_slack_in)
+
+    p_slack_out = var(pm, nw)[:p_slack_out] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_p_slack_out_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "p_slack_out_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :p_slack_out, ids(pm, nw, :bus), p_slack_out)
+end
+
+
+""
+function variable_mc_slack_bus_power_imaginary_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    q_slack_in = var(pm, nw)[:q_slack_in] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_q_slack_in_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "q_slack_in_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack_in, ids(pm, nw, :bus), q_slack_in)
+    
+    q_slack_out = var(pm, nw)[:q_slack_out] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_q_slack_out_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "q_slack_out_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack_out, ids(pm, nw, :bus), q_slack_out)
+end
+
+"generates and assigns variables for the equity weighting of slack power at each bus"
+function variable_mc_slack_bus_power_equity_weight(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    # @infiltrate
+    data_to_vulnerability = get_vulnerability(pm.data)
+    valid_ids = [i for i in ids(pm, nw, :bus) if haskey(data_to_vulnerability, i)]
+    # @infiltrate
+    equity_weight = var(pm, nw)[:equity_weight] = JuMP.@variable(pm.model,
+        # filter((i)->haskey(data_to_vulnerability, i), ids(pm, nw, :bus)),
+        [i in valid_ids],
+        # base_name="$(nw)-equity_weight",
+        # equity_weight == data_to_vulnerability[ref(pm, nw, :bus, i, "name")] # pm.data["bus"],
+        # start = comp_start_value(ref(pm, nw, :bus, i), "equity_weight_start", t, 0.0)
+    )
+    # @infiltrate
+    equity_constraints = [JuMP.@constraint(pm.model, equity_weight[i] == data_to_vulnerability[i]) for i in valid_ids]
+    # @infiltrate
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :equity_weight, valid_ids, equity_weight)
+
 end

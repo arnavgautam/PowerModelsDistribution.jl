@@ -109,6 +109,7 @@ module PowerModelsDistribution
     include("io/dss/parse.jl")
     include("io/json/json.jl")
     include("io/common.jl")
+    include("io/parse_shapefiles.jl")
 
     include("data_model/utils.jl")
     include("data_model/checks.jl")
@@ -129,6 +130,7 @@ module PowerModelsDistribution
     include("prob/pf.jl")
     include("prob/native_pf.jl")
     include("prob/debug.jl")
+    include("prob/tpia.jl")
     include("prob/test.jl")
     include("prob/osw.jl")
 
