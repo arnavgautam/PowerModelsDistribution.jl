@@ -94,6 +94,13 @@ function constraint_mc_power_balance_slack(pm::AbstractUnbalancedWModels, nw::In
     end
 end
 
+"nothing to do, no voltage angle variables"
+function constraint_mc_ohms_yt_from(pm::AbstractUnbalancedWModels, i::Int; nw::Int=nw_id_default)
+end
+
+"nothing to do, no voltage angle variables"
+function constraint_mc_ohms_yt_to(pm::AbstractUnbalancedWModels, i::Int; nw::Int=nw_id_default)
+end
 
 ""
 function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedWModels, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}})

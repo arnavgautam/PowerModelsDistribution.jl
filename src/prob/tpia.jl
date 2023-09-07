@@ -8,6 +8,90 @@ function solve_mc_tpia_L1(data::Union{Dict{String,<:Any},String}, model_type::Ty
     return solve_mc_model(data, model_type, solver, build_mc_tpia_L1; kwargs...)
 end
 
+"Three-Phase Infeasibility Analysis Problem with L1 Norm"
+function solve_mn_mc_tpia_L1(data::Union{Dict{String,<:Any},String}, model_type::Type, solver; kwargs...)
+    return solve_mc_model(data, model_type, solver, build_mn_mc_tpia_L1; kwargs...)
+end
+
+"Constructor for Three-Phase Infeasibility Analysis Problem"
+function build_mn_mc_tpia_L1(pm::AbstractUnbalancedPowerModel)
+    for (n, network) in nws(pm)
+        variable_mc_bus_voltage(pm; nw=n, bounded=false)
+        variable_mc_branch_power(pm; nw=n, bounded=false)
+        variable_mc_switch_power(pm; nw=n, bounded=false)
+        variable_mc_transformer_power(pm; nw=n, bounded=false)
+        variable_mc_generator_power(pm; nw=n, bounded=false)
+        # @infiltrate
+        # load_ids = 
+        variable_mc_load_power(pm; nw=n)
+        # variable_mc_load_power(pm; nw=n, bounded=true, report=true)
+        variable_mc_load_power(pm, collect(ids(pm, n, :load)); nw=n, bounded=true, report=true)
+        variable_mc_storage_power(pm; nw=n, bounded=false)
+
+        constraint_mc_model_voltage(pm; nw=n)
+
+        variable_mc_slack_bus_power_equity_weight(pm; nw=n)
+        variable_mc_slack_bus_power_L1(pm; nw=n)
+
+        for (i,bus) in ref(pm, n, :ref_buses)
+            @assert bus["bus_type"] == 3
+
+            constraint_mc_theta_ref(pm, i; nw=n)
+            constraint_mc_voltage_magnitude_only(pm, i; nw=n)
+        end
+
+        # gens should be constrained before KCL, or Pd/Qd undefined
+        for id in ids(pm, n, :gen)
+            constraint_mc_generator_power(pm, id; nw=n)
+        end
+
+        # loads should be constrained before KCL, or Pd/Qd undefined
+        for id in ids(pm, n, :load)
+            constraint_mc_load_power(pm, id; nw=n)
+        end
+
+        for (i,bus) in ref(pm, n, :bus)
+            constraint_mc_power_balance_slack_L1(pm, i; nw=n)
+
+            # PV Bus Constraints
+            if (length(ref(pm, n, :bus_gens, i)) > 0 || length(ref(pm, n, :bus_storages, i)) > 0) && !(i in ids(pm, n, :ref_buses))
+                # this assumes inactive generators are filtered out of bus_gens
+                @assert bus["bus_type"] == 2
+
+                constraint_mc_voltage_magnitude_only(pm, i; nw=n)
+                for j in ref(pm, n, :bus_gens, i)
+                    constraint_mc_gen_power_setpoint_real(pm, j; nw=n)
+                end
+                for j in ref(pm, n, :bus_storages, i)
+                    constraint_mc_storage_power_setpoint_real(pm, j; nw=n)
+                end
+            end
+        end
+
+        for i in ids(pm, n, :storage)
+            constraint_storage_state(pm, i; nw=n)
+            constraint_storage_complementarity_nl(pm, i; nw=n)
+            constraint_mc_storage_losses(pm, i; nw=n)
+            constraint_mc_storage_thermal_limit(pm, i; nw=n)
+        end
+
+        for i in ids(pm, n, :branch)
+            constraint_mc_ohms_yt_from(pm, i; nw=n)
+            constraint_mc_ohms_yt_to(pm, i; nw=n)
+        end
+
+        for i in ids(pm, n, :switch)
+            constraint_mc_switch_state(pm, i; nw=n)
+        end
+
+        for i in ids(pm, n, :transformer)
+            constraint_mc_transformer_power(pm, i; nw=n)
+        end
+    end
+
+    objective_mc_min_slack_bus_power_L1(pm)
+end
+
 "Constructor for Three-Phase Infeasibility Analysis Problem"
 function build_mc_tpia_L1(pm::AbstractUnbalancedPowerModel)
     variable_mc_bus_voltage(pm; bounded=false)
@@ -15,8 +99,8 @@ function build_mc_tpia_L1(pm::AbstractUnbalancedPowerModel)
     variable_mc_switch_power(pm; bounded=false)
     variable_mc_transformer_power(pm; bounded=false)
     variable_mc_generator_power(pm; bounded=false)
-    @infiltrate
-    variable_mc_load_power(pm; bounded=false)
+    # @infiltrate
+    variable_mc_load_power(pm)#; bounded=false)
     variable_mc_storage_power(pm; bounded=false)
 
     constraint_mc_model_voltage(pm)

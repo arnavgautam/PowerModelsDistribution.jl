@@ -249,7 +249,7 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACPModel, nw
                      +Bt[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
                      for (jdx,u) in ungrounded_terminals if idx != jdx)
             )
-            + (p_slack_in[t] - p_slack_out[t])
+            + (p_slack_out[t] - p_slack_in[t])
         )
         push!(cstr_p, cp)
 
@@ -267,7 +267,7 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACPModel, nw
                      -Gt[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
                      for (jdx,u) in ungrounded_terminals if idx != jdx)
             )
-            + (q_slack_in[t] - q_slack_out[t])
+            + (q_slack_out[t] - q_slack_in[t])
         )
         push!(cstr_q, cq)
 

@@ -206,7 +206,7 @@ end
 
 ""
 function _parse_dss_cmd_buscoords!(data_dss::DssRawModel, file::String, line_number::Int)::Nothing
-    file = "Long_lat_buscoords.txt"
+    # file = "Long_lat_buscoords.txt"
     file_path = split(strip(file, ['(',')']), r"[\\|\/]")
     full_path = joinpath(data_dss.current_state.base_path, file_path...)
     # @infiltrate
@@ -261,7 +261,7 @@ end
 
 
 ""
-_parse_dss_cmd_coords!(data_dss::DssRawModel, file::String, line_number::Int)::Vector{DssBuscoords} = _parse_dss_cmd_lon_lat_buscoords!(data_dss, file, line_number)
+_parse_dss_cmd_latloncoords!(data_dss::DssRawModel, file::String, line_number::Int)::Vector{DssBuscoords} = _parse_dss_cmd_buscoords!(data_dss, file, line_number)
 
 
 ""
