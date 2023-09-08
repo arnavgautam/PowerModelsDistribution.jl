@@ -405,7 +405,6 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACRModel, nw
     for (idx, t) in ungrounded_terminals
         crsh = sum(Gt[idx,jdx]*vr[s]-Bt[idx,jdx]*vi[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
         cish = sum(Gt[idx,jdx]*vi[s]+Bt[idx,jdx]*vr[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
-        @infiltrate
         cp = JuMP.@constraint(pm.model,
             sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
             + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)

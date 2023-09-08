@@ -10,6 +10,7 @@ using BilevelJuMP
 using Infiltrator
 import MultiObjectiveAlgorithms as MOA
 import MathOptInterface as MOI
+using DelimitedFiles
 
 #################################################################################################
 # Setting up information on the case study                                                      #
@@ -23,7 +24,11 @@ sf_casefile = "/home/arnav.gautam/PowerModelsDistribution.jl/test/data/arnav_dat
 # my_ipopt_optimizer = optimizer_with_attributes(Ipopt.Optimizer, "max_iter"=>200, "tol"=>100.0, "dual_inf_tol"=>100.0, "constr_viol_tol"=>1.0, "compl_inf_tol"=>0.01)
 my_ipopt_optimizer = optimizer_with_attributes(Ipopt.Optimizer, "max_iter"=>5000, "acceptable_tol"=>100000.0, "acceptable_dual_inf_tol"=>10000.0, "acceptable_constr_viol_tol"=>1.0, "acceptable_compl_inf_tol"=>1.0, "acceptable_obj_change_tol"=>100.0)
 tighter_ipopt_optimizer = optimizer_with_attributes(Ipopt.Optimizer, "max_iter"=>5000, "acceptable_tol"=>100000.0, "acceptable_dual_inf_tol"=>10000.0, "acceptable_constr_viol_tol"=>1.0, "acceptable_compl_inf_tol"=>1.0, "acceptable_obj_change_tol"=>10.0)
-my_gurobi_optimizer = optimizer_with_attributes(Gurobi.Optimizer, "TimeLimit"=>36000, "MipGap"=>0.05, "nonconvex"=>2) # "gurobi_options"=>"timelim 300 mipgap 0.05 nonconvex 2"
+my_gurobi_optimizer = optimizer_with_attributes(
+    Gurobi.Optimizer,
+    "TimeLimit"=>60,#36000,
+    "MipGap"=>2e-5,#0.01,
+    "nonconvex"=>2) # "gurobi_options"=>"timelim 300 mipgap 0.05 nonconvex 2"
 my_baron_optimizer = optimizer_with_attributes(
     BARON.Optimizer,
     "threads"=>16,
@@ -81,8 +86,8 @@ function create_PMD_JuMP_model(math_model, formulation, problem, my_optimizer; P
     return PMD_jump_model
 end
 
-function write_DAT_file(timeseries_data)
-    slack_power_file = open("/home/arnav.gautam/model/data/$(SFO_SMART_DS_REGION)_load.dat", "w")
+function write_DAT_file(timeseries_data; DAT_file_name_suffix="")
+    slack_power_file = open("/home/arnav.gautam/model/data/$(SFO_SMART_DS_REGION)$(DAT_file_name_suffix)_load.dat", "w")
     write(slack_power_file, "param: d_p1 := \n")
     for nw_num in 1:length(timeseries_data)
         write(slack_power_file, "$nw_num  total $(timeseries_data[nw_num])\n")
@@ -101,7 +106,7 @@ function run_PMD_directly_and_write_result_to_file(PMD_math_model, formulation, 
     for nw_num in 1:num_timestamps
         solution_p_slack = sum(sum(val["p_slack_out"]) - sum(val["p_slack_in"]) for val in values(sf_tpia_solution["solution"]["nw"]["$(nw_num-1)"]["bus"]))
         solution_q_slack = sum(sum(val["q_slack_out"]) - sum(val["q_slack_in"]) for val in values(sf_tpia_solution["solution"]["nw"]["$(nw_num-1)"]["bus"]))
-        solution_slack_power = sqrt(solution_p_slack^2 + solution_q_slack^2)
+        solution_slack_power = (solution_p_slack^2 + solution_q_slack^2).^0.5
         slack_power_timeseries_data[nw_num] = solution_slack_power
     end
     write_DAT_file(slack_power_timeseries_data)
@@ -128,6 +133,7 @@ function map_variables_from_AMPL()
             var_name = readline(var_name_file)
             all_var_names_to_index[var_name] = line_number
             if startswith(var_name, "Y_a[")
+                println(var_name)
                 Y_a_var_name_to_index[var_name[6:end-2]] = line_number
             elseif startswith(var_name, "X_p[")
                 tech_name, timestamp = split(var_name[6:end-1], "',")
@@ -141,7 +147,7 @@ function map_variables_from_AMPL()
 end
 
 # Instantiate the JuMP model from the AMPL economic optimization formulation
-function read_economic_model_from_AMPL_into_jump(my_optimizer = nothing; destination_model = nothing)
+function read_economic_model_from_AMPL_into_jump(;my_optimizer = nothing, destination_model = nothing)
     filename = "/home/arnav.gautam/PowerModelsDistribution.jl/EconomicCostOptimization.mps"#.nl"
     if isnothing(destination_model)
         destination_model = JuMP.read_from_file(filename)
@@ -154,6 +160,38 @@ function read_economic_model_from_AMPL_into_jump(my_optimizer = nothing; destina
     return destination_model
 end
 
+# Get the variables associated with the technology numbers from the solved model
+function get_tech_number_variables(jump_model, Y_a_var_name_to_index)
+    Y_a_variables = Dict()
+    all_variables_of_jump_model = JuMP.all_variables(jump_model)
+    tech_name_to_var_name = Dict()
+    for (tech_name, idx) in Y_a_var_name_to_index
+        tech_name_to_var_name[tech_name] = "C$idx"
+        Y_a_variables[tech_name] = [var for var in all_variables_of_jump_model if name(var) == tech_name_to_var_name[tech_name]][1]
+    end
+    # for (tech_name, idx) in Y_a_var_name_to_index
+    #     Y_a_variables[tech_name] = VariableRef(jump_model, MOI.VariableIndex(idx))# all_variables_of_jump_model[idx]
+    # end
+    return Y_a_variables
+end
+
+# Extract the technology numbers from the solved model
+function get_optimal_system_details(jump_model)
+    # Collect variables from AMPL
+    Y_a_var_name_to_index, all_var_names_to_index, tech_dispatch_timeseries_var_indices = map_variables_from_AMPL()
+    
+    # Store references to relevant variables
+    Y_a_variables = get_tech_number_variables(jump_model, Y_a_var_name_to_index)
+    
+    # Compile values for relevant variables
+    system_numbers = Dict()
+    for tech_name in keys(Y_a_variables)
+        system_numbers[tech_name] = JuMP.value(Y_a_variables[tech_name])
+    end
+
+    return system_numbers
+end
+
 # Make the economic JuMP model into a multi-objective problem (with environmental objectives)
 function make_economic_JuMP_model_multi_objective(jump_model, my_inner_optimizer)
     set_optimizer(jump_model, () -> MOA.Optimizer(my_inner_optimizer))
@@ -164,11 +202,7 @@ function make_economic_JuMP_model_multi_objective(jump_model, my_inner_optimizer
     Y_a_var_name_to_index, all_var_names_to_index, tech_dispatch_timeseries_var_indices = map_variables_from_AMPL()
     
     # Store references to relevant variables
-    Y_a_variables = Dict()
-    all_variables_of_jump_model = JuMP.all_variables(jump_model)
-    for (tech_name, idx) in Y_a_var_name_to_index
-        Y_a_variables[tech_name] = all_variables_of_jump_model[idx]
-    end
+    Y_a_variables = get_tech_number_variables(jump_model, Y_a_var_name_to_index)
 
     tech_dispatch_timeseries_variables = Dict(tech_name=>Dict() for tech_name in tech_names)
     for tech_name in keys(tech_dispatch_timeseries_var_indices)
@@ -233,13 +267,13 @@ function construct_bilevel_jump_model(my_optimizer)
     bi_level_jump_model = BilevelModel(my_optimizer)
     set_attribute(bi_level_jump_model.upper, MOI.ObjectiveSense(), MOI.MIN_SENSE)
     set_attribute(bi_level_jump_model.lower, MOI.ObjectiveSense(), MOI.MIN_SENSE)
-    read_economic_model_from_AMPL_into_jump(destination_model=backend(bi_level_jump_model.upper));
+    read_economic_model_from_AMPL_into_jump(;destination_model=backend(bi_level_jump_model.upper));
     create_PMD_JuMP_model(sf_math, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, my_baron_optimizer; PMD_jump_model = backend(bi_level_jump_model.lower));
     # set_optimizer_attribute(bi_level_jump_model, "NonConvex", 2) # If I have Nonconvex/nonconcave/nonpsd objective/constraint error in a MIP solver like Gurobi.
     return bi_level_jump_model
 end
 
-# 
+# Make the upper level of a BilevelJump model into a multi-objective optimization
 function make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_inner_optimizer)
     set_optimizer(bi_level_jump_model, () -> MOA.Optimizer(my_inner_optimizer))
     set_attribute(bi_level_jump_model, MOA.Algorithm(), MOA.TambyVanderpooten())
@@ -263,20 +297,44 @@ end
 
 function create_sum_of_loads_DAT_file()
     # Locate the loadshapes of the region
+    loadshape_reference_filename = "/home/arnav.gautam/PowerModelsDistribution.jl/test/data/arnav_data/SFO_$(SFO_SMART_DS_REGION)_Timeseries/scenarios/base_timeseries/opendss/p4uhs0_4/p4uhs0_4--p4udt0/LoadShapes.dss"
+    loadshape_file_list = []
+    loadshape_reference_file = open(loadshape_reference_filename, "r")
+    while !eof(loadshape_reference_file)
+        loadshape_reference_line = readline(loadshape_reference_file)
+        if length(loadshape_reference_line) == 0
+            continue
+        end
+        loadshape_reference_array = split(loadshape_reference_line, " ")
+        mult_path = loadshape_reference_array[8][7:end-1]
+        qmult_path = loadshape_reference_array[11][7:end-1]
+        push!(loadshape_file_list, (mult_path, qmult_path))
+    end
+    close(loadshape_reference_file)
 
     # Read in the files to a format Julia understands
-
     # For each timestamp, calculate total load
-    sum_of_loads_timeseries_data = []
+    power_timeseries = nothing
+    for (p_timeseries_file, q_timeseries_file) in loadshape_file_list
+        p_timeseries = readdlm(normpath(joinpath(loadshape_reference_filename, "..", p_timeseries_file)))
+        q_timeseries = readdlm(normpath(joinpath(loadshape_reference_filename, "..", q_timeseries_file)))
+        new_power_timeseries = (p_timeseries.^2 + q_timeseries.^2).^0.5
+        if isnothing(power_timeseries)
+            power_timeseries = new_power_timeseries
+        else
+            power_timeseries += new_power_timeseries
+        end
+    end
 
     # Write out DAT file with data
-    write_DAT_file(sum_of_loads_timeseries_data)
+    write_DAT_file(power_timeseries; DAT_file_name_suffix="_sum_of")
 end
 
-function run_economic_opti_on_text()
-    refresh_economic_model_in_AMPL(SFO_SMART_DS_REGION)
+function run_economic_opti_on_text(; DAT_file_name_suffix="")
+    refresh_economic_model_in_AMPL("$SFO_SMART_DS_REGION$DAT_file_name_suffix")
     economic_jump_model = read_economic_model_from_AMPL_into_jump(;my_optimizer=my_gurobi_optimizer)
     JuMP.optimize!(economic_jump_model)
+    return economic_jump_model
 end
 
 # Give a full summary of a solved bilevel optimization
@@ -310,7 +368,9 @@ end
 # CONFIGURATION 1: Economic Opti(sum(loads))                                                    #
 #################################################################################################
 create_sum_of_loads_DAT_file()
-economic_jump_model = run_economic_opti_on_text()
+economic_jump_model = run_economic_opti_on_text(; DAT_file_name_suffix="_sum_of")
+optimal_system_details = get_optimal_system_details(economic_jump_model)
+obj_value = objective_value(economic_jump_model)
 # JuMP.solution_summary(economic_jump_model)
 
 #################################################################################################
