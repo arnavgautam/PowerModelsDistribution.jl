@@ -88,11 +88,7 @@ function _make_multinetwork_eng(
             for ts_id in values(ts_dict)
                 if haskey(get(data_eng, "time_series", Dict()), ts_id)
                     @info "Pushing time series data for ts_id $ts_id"
-                    # @infiltrate
-                    # time_series_data = data_eng["time_series"][ts_id]["time"]
-                    # @infiltrate
                     foreach(timestamp -> push!(times, timestamp), data_eng["time_series"][ts_id]["time"])
-                    # push!(times, time_series_data...)
                 end
             end
         end
@@ -128,7 +124,7 @@ function _make_multinetwork_eng(
         end
     end
 
-    @info "Done seting datetimes in _make_multinetwork_eng"
+    @info "Done setting datetimes in _make_multinetwork_eng"
 
     if length(times) == 0
         mn_data["nw"] = Dict{String,Any}(
@@ -151,8 +147,9 @@ function _make_multinetwork_eng(
             k => deepcopy(v) for (k,v) in data_eng if !(k in _pmd_eng_global_keys)
         )
         for n in sort([n for n in keys(mn_data["nw"])])
-            time = mn_lookup["$n"]
-            _nw["time"] = time
+            time = mn_lookup[n]
+            _nw_deepcopy = deepcopy(_nw)
+            _nw_deepcopy["time"] = time
 
             for (type, ts_info) in ts_lookup
                 for (obj_name, ts_dict) in ts_info
@@ -162,18 +159,21 @@ function _make_multinetwork_eng(
                             if time in ts["time"]
                                 idx = findfirst(x->x==time, ts["time"])
                                 if ts["replace"]
-                                    _nw[type][obj_name][property_name] = zeros(size(_nw[type][obj_name][property_name])) .+ ts["values"][idx]
+                                    _nw_deepcopy[type][obj_name][property_name] = zeros(size(_nw_deepcopy[type][obj_name][property_name])) .+ ts["values"][idx]
                                 else
-                                    _nw[type][obj_name][property_name] = deepcopy(data_eng[type][obj_name][property_name]) .* ts["values"][idx]
+                                    _nw_deepcopy[type][obj_name][property_name] = data_eng[type][obj_name][property_name] .* ts["values"][idx]
                                 end
                             end
                         end
                     end
                 end
             end
-            merge!(mn_data["nw"]["$n"], deepcopy(_nw))
+            mn_data["nw"][n] = _nw_deepcopy
+            GC.gc()
         end
     end
+
+    @info "Done with copying networks into mn_data"
 
     set_time_elapsed!(mn_data, time_elapsed)
 

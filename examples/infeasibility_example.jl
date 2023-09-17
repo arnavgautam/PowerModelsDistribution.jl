@@ -120,7 +120,7 @@ function write_DAT_file(timeseries_data; DAT_file_name_suffix="")
 end
 
 # Run PMD.jl on this math model using this formulation, for this power flow problem, with this optimizer
-function run_PMD_directly_and_write_result_to_file(PMD_math_model, formulation, problem, my_optimizer; is_multinetwork=true)
+function run_PMD_directly_and_write_result_to_file(PMD_math_model, formulation, problem, my_optimizer; is_multinetwork=true, write_to_DAT_file=true)
     sf_tpia_solution = problem(PMD_math_model, formulation, my_optimizer; multinetwork=is_multinetwork)
     num_timestamps = length(keys(sf_tpia_solution["solution"]["nw"]))
     slack_power_timeseries_data = Float64[num_timestamps]
@@ -130,7 +130,11 @@ function run_PMD_directly_and_write_result_to_file(PMD_math_model, formulation, 
         solution_slack_power = (solution_p_slack^2 + solution_q_slack^2).^0.5
         slack_power_timeseries_data[nw_num] = solution_slack_power
     end
-    return write_DAT_file(slack_power_timeseries_data)
+    if write_to_DAT_file
+        return write_DAT_file(slack_power_timeseries_data)
+    else
+        return slack_power_timeseries_data
+    end
 end
 
 # Run a Python script to customize an AMPL economic optimization model with load data from this region, and output it to text
@@ -444,15 +448,21 @@ total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3
 total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_qg_", name(var))]
 total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
 
-pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mn_mc_tpia_L1, my_baron_optimizer)
+pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
 JuMP.optimize!(pmd_timestamp_ACPU_jump_model)
 total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_pg_", name(var))]
 total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_qg_", name(var))]
 total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
-total_p_slack = 
+total_p_slack = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_p_slack_in_", name(var))]
 
-pmd_timestamp_result_filename = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true)
-ensure_tpia_output_is_nonzero(pmd_timestamp_result_filename)
+LinDist3Flow_slack_power_timeseries_data = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true, write_to_DAT_file=false)
+@assert(sum(LinDist3Flow_slack_power_timeseries_data) != 0, "Slack power is zero")
+
+ACPU_slack_power_timeseries_data = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, ACPUPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true, write_to_DAT_file=false)
+@assert(sum(ACPU_slack_power_timeseries_data) != 0, "Slack power is zero")
+
+
+# ensure_tpia_output_is_nonzero(pmd_timestamp_result_filename)
 
 economic_jump_model = run_economic_opti_on_text()
 optimal_system_details = get_optimal_system_details(economic_jump_model)
