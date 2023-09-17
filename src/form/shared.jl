@@ -36,7 +36,7 @@ end
 
 
 ""
-function constraint_mc_power_balance_slack(pm::AbstractUnbalancedWModels, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{Union{String,Int}}}})
+function constraint_mc_power_balance_slack(pm::AbstractUnbalancedWModels, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{<:Union{String,Int}}}})
     w    = var(pm, nw, :w, i)
     p    = get(var(pm, nw),    :p, Dict()); _check_var_keys(p, bus_arcs, "active power", "branch")
     q    = get(var(pm, nw),    :q, Dict()); _check_var_keys(q, bus_arcs, "reactive power", "branch")
@@ -137,7 +137,7 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedWModels, nw:
             - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
             - sum(ref(pm, nw, :load, l, "pd")[findfirst(isequal(t), conns)] for (l, conns) in bus_loads if t in conns)
             - sum(w[t] * LinearAlgebra.diag(Gt')[idx] for (sh, conns) in bus_shunts if t in conns)
-            + (p_slack_in[t] - p_slack_out[t])
+            + (p_slack_out[t] - p_slack_in[t])
         )
         push!(cstr_p, cp)
         cq = JuMP.@constraint(pm.model,
@@ -149,7 +149,7 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedWModels, nw:
             - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
             - sum(ref(pm, nw, :load, l, "qd")[findfirst(isequal(t), conns)] for (l, conns) in bus_loads if t in conns)
             - sum(-w[t] * LinearAlgebra.diag(Bt')[idx] for (sh, conns) in bus_shunts if t in conns)
-            + (q_slack_in[t] - q_slack_out[t])
+            + (q_slack_out[t] - q_slack_in[t])
         )
         push!(cstr_q, cq)
     end

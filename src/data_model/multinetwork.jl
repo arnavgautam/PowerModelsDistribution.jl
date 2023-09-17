@@ -87,11 +87,18 @@ function _make_multinetwork_eng(
         for ts_dict in values(ts_info)
             for ts_id in values(ts_dict)
                 if haskey(get(data_eng, "time_series", Dict()), ts_id)
-                    push!(times, data_eng["time_series"][ts_id]["time"]...)
+                    @info "Pushing time series data for ts_id $ts_id"
+                    # @infiltrate
+                    # time_series_data = data_eng["time_series"][ts_id]["time"]
+                    # @infiltrate
+                    foreach(timestamp -> push!(times, timestamp), data_eng["time_series"][ts_id]["time"])
+                    # push!(times, time_series_data...)
                 end
             end
         end
     end
+
+    @info "Done pushing time series data"
 
     if eltype(times) == Any && length(unique([typeof(el) for el in times])) > 1
         @warn "Time steps in this data model are of mixed type, multinetwork frames may be out of order. You may want to manually correct this with sort_multinetwork!"
@@ -120,6 +127,8 @@ function _make_multinetwork_eng(
             end
         end
     end
+
+    @info "Done seting datetimes in _make_multinetwork_eng"
 
     if length(times) == 0
         mn_data["nw"] = Dict{String,Any}(
@@ -167,6 +176,8 @@ function _make_multinetwork_eng(
     end
 
     set_time_elapsed!(mn_data, time_elapsed)
+
+    @info "Done with _make_multinetwork_eng"
 
     return mn_data
 end

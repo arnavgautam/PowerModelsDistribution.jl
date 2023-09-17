@@ -17,13 +17,23 @@ using DelimitedFiles
 #################################################################################################
 
 const SFO_SMART_DS_REGION = "P4U"
+const FILENAME_BASE = "/home/arnav.gautam/PowerModelsDistribution.jl/test/data/arnav_data/SFO_$(SFO_SMART_DS_REGION)_Timeseries/scenarios/base_timeseries/opendss/p4uhs0_4/p4uhs0_4--p4udt0/"
+
 # sf_casefile = "/home/arnav.gautam/PowerModelsDistribution.jl/test/data/arnav_data/SFO_$(SFO_SMART_DS_REGION)_Timeseries/scenarios/base_timeseries/opendss/Master.dss"
-sf_casefile = "/home/arnav.gautam/PowerModelsDistribution.jl/test/data/arnav_data/SFO_$(SFO_SMART_DS_REGION)_Timeseries/scenarios/base_timeseries/opendss/p4uhs0_4/p4uhs0_4--p4udt0/Master.dss"
+sf_casefile = joinpath(FILENAME_BASE, "Master.dss")
 
 # Setting up custom optimizers
 # my_ipopt_optimizer = optimizer_with_attributes(Ipopt.Optimizer, "max_iter"=>200, "tol"=>100.0, "dual_inf_tol"=>100.0, "constr_viol_tol"=>1.0, "compl_inf_tol"=>0.01)
 my_ipopt_optimizer = optimizer_with_attributes(Ipopt.Optimizer, "max_iter"=>5000, "acceptable_tol"=>100000.0, "acceptable_dual_inf_tol"=>10000.0, "acceptable_constr_viol_tol"=>1.0, "acceptable_compl_inf_tol"=>1.0, "acceptable_obj_change_tol"=>100.0)
-tighter_ipopt_optimizer = optimizer_with_attributes(Ipopt.Optimizer, "max_iter"=>5000, "acceptable_tol"=>100000.0, "acceptable_dual_inf_tol"=>10000.0, "acceptable_constr_viol_tol"=>1.0, "acceptable_compl_inf_tol"=>1.0, "acceptable_obj_change_tol"=>10.0)
+tighter_ipopt_optimizer = optimizer_with_attributes(
+    Ipopt.Optimizer,
+    "max_iter"=>5000,
+    "acceptable_tol"=>100000.0,
+    "acceptable_dual_inf_tol"=>10000.0,
+    "acceptable_constr_viol_tol"=>1.0,
+    "acceptable_compl_inf_tol"=>1.0,
+    "acceptable_obj_change_tol"=>1e-6
+    )
 my_gurobi_optimizer = optimizer_with_attributes(
     Gurobi.Optimizer,
     "TimeLimit"=>60,#36000,
@@ -31,17 +41,17 @@ my_gurobi_optimizer = optimizer_with_attributes(
     "nonconvex"=>2) # "gurobi_options"=>"timelim 300 mipgap 0.05 nonconvex 2"
 my_baron_optimizer = optimizer_with_attributes(
     BARON.Optimizer,
-    "threads"=>16,
-    # "EpsA"=>1e6,
-    # "EpsR"=>1e6,
-    # "DeltaTerm"=>1,
-    # "DeltaT"=>600,
-    # "AbsConFeasTol"=>1e6,
-    # "RelConFeasTol"=>0.1,
-    # "AbsIntFeasTol"=>1e6,
-    # "RelIntFeasTol"=>0.1,
-    # "FirstFeas"=>1,
-    # "FirstLoc"=>1,
+    "threads"=>1,#6,
+    "EpsA"=>1e-12,#e6,
+    "EpsR"=>1e-12,#e6,
+    "DeltaTerm"=>1,
+    "DeltaT"=>600,
+    "AbsConFeasTol"=>1e6,
+    "RelConFeasTol"=>0.1,
+    "AbsIntFeasTol"=>1e6,
+    "RelIntFeasTol"=>0.1,
+    "FirstFeas"=>1,
+    "FirstLoc"=>1,
     "MaxTime"=>36000
     )
 
@@ -60,19 +70,28 @@ function create_PMD_mathematical_model(case_file; is_multinetwork=true, time_ser
     # eng_model["voltage_source"]["source"]["xs"] .= 1e100#Inf
     # eng_model["voltage_source"]["source"]["pg_ub"] = [0, 0, 0]
     # eng_model["voltage_source"]["source"]["qg_ub"] = [0, 0, 0]
-    for nw in 1:length(eng_model["nw"])
-        eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["pg_ub"] = [0, 0, 0]
-        eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["qg_ub"] = [0, 0, 0]
-    end
+
+    # for nw in 1:length(eng_model["nw"])
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["pg_ub"] = [0, 0, 0]
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["qg_ub"] = [0, 0, 0]
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["pg_lb"] = [0, 0, 0]
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["qg_lb"] = [0, 0, 0]
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["pg"] = [0, 0, 0]
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["qg"] = [0, 0, 0]
+    #     eng_model["nw"]["$(nw-1)"]["voltage_source"]["source"]["vm"] = [Inf, Inf, Inf, Inf]
+    # end
 
     # Convert the ENGINEERING model into a MATHEMATICAL model
     passthrough_dict =  Dict{String,Vector{String}}(
         "bus" => String["lat", "lon"])
     math_model = transform_data_model(eng_model, eng2math_passthrough=passthrough_dict)
-    for nw in 1:length(eng_model["nw"])
-        @assert(math_model["nw"]["$(nw-1)"]["gen"]["1"]["pmax"] == [0.0,0.0,0.0])
-        @assert(math_model["nw"]["$(nw-1)"]["gen"]["1"]["qmax"] == [0.0,0.0,0.0])
-    end
+
+    # for nw in 1:length(eng_model["nw"])
+    #     @assert(math_model["nw"]["$(nw-1)"]["gen"]["1"]["pmax"] == [0.0,0.0,0.0])
+    #     @assert(math_model["nw"]["$(nw-1)"]["gen"]["1"]["qmax"] == [0.0,0.0,0.0])
+    #     @assert(math_model["nw"]["$(nw-1)"]["gen"]["1"]["vg"] == [Inf, Inf, Inf])
+    # end
+
     return math_model
 end
 
@@ -87,15 +106,17 @@ function create_PMD_JuMP_model(math_model, formulation, problem, my_optimizer; P
 end
 
 function write_DAT_file(timeseries_data; DAT_file_name_suffix="")
-    slack_power_file = open("/home/arnav.gautam/model/data/$(SFO_SMART_DS_REGION)$(DAT_file_name_suffix)_load.dat", "w")
+    slack_power_filename = "/home/arnav.gautam/model/data/$(SFO_SMART_DS_REGION)$(DAT_file_name_suffix)_load.dat"
+    slack_power_file = open(slack_power_filename, "w")
     write(slack_power_file, "param: d_p1 := \n")
     for nw_num in 1:length(timeseries_data)
-        write(slack_power_file, "$nw_num  total $(timeseries_data[nw_num])\n")
-        write(slack_power_file, "$nw_num  cl $(timeseries_data[nw_num])\n")
-        write(slack_power_file, "$nw_num  rl 0.0\n")
+        write(slack_power_file, "$nw_num  total $(timeseries_data[nw_num])\r\n")
+        write(slack_power_file, "$nw_num  cl $(timeseries_data[nw_num])\r\n")
+        write(slack_power_file, "$nw_num  rl 0.0\r\n")
     end
     write(slack_power_file, ";\n")
     close(slack_power_file)
+    return slack_power_filename
 end
 
 # Run PMD.jl on this math model using this formulation, for this power flow problem, with this optimizer
@@ -109,7 +130,7 @@ function run_PMD_directly_and_write_result_to_file(PMD_math_model, formulation, 
         solution_slack_power = (solution_p_slack^2 + solution_q_slack^2).^0.5
         slack_power_timeseries_data[nw_num] = solution_slack_power
     end
-    write_DAT_file(slack_power_timeseries_data)
+    return write_DAT_file(slack_power_timeseries_data)
 end
 
 # Run a Python script to customize an AMPL economic optimization model with load data from this region, and output it to text
@@ -296,9 +317,27 @@ end
 #################################################################################################
 
 function create_sum_of_loads_DAT_file()
+    # Locate the loads of the region
+    loads_filename = joinpath(FILENAME_BASE, "Loads.dss")
+    loadshape_base_values = Dict()
+    loads_file = open(loads_filename, "r")
+    while !eof(loads_file)
+        load_line = readline(loads_file)
+        if length(load_line) == 0
+            continue
+        end
+        load_array = split(load_line, " ")
+        load_p_base_value = parse(Float64, load_array[9][4:end])
+        load_q_base_value = parse(Float64, load_array[10][6:end])
+        loadshape_name = load_array[12][8:end]
+        loadshape_base_values[loadshape_name] = (load_p_base_value, load_q_base_value)
+    end
+    close(loads_file)
+
+
     # Locate the loadshapes of the region
-    loadshape_reference_filename = "/home/arnav.gautam/PowerModelsDistribution.jl/test/data/arnav_data/SFO_$(SFO_SMART_DS_REGION)_Timeseries/scenarios/base_timeseries/opendss/p4uhs0_4/p4uhs0_4--p4udt0/LoadShapes.dss"
-    loadshape_file_list = []
+    loadshape_reference_filename = joinpath(FILENAME_BASE, "LoadShapes.dss")
+    loadshape_file_list = Dict()
     loadshape_reference_file = open(loadshape_reference_filename, "r")
     while !eof(loadshape_reference_file)
         loadshape_reference_line = readline(loadshape_reference_file)
@@ -306,19 +345,21 @@ function create_sum_of_loads_DAT_file()
             continue
         end
         loadshape_reference_array = split(loadshape_reference_line, " ")
+        loadshape_name = loadshape_reference_array[2][11:end]
         mult_path = loadshape_reference_array[8][7:end-1]
         qmult_path = loadshape_reference_array[11][7:end-1]
-        push!(loadshape_file_list, (mult_path, qmult_path))
+        loadshape_file_list[loadshape_name] = (mult_path, qmult_path)
     end
     close(loadshape_reference_file)
 
     # Read in the files to a format Julia understands
     # For each timestamp, calculate total load
     power_timeseries = nothing
-    for (p_timeseries_file, q_timeseries_file) in loadshape_file_list
+    for (loadshape_name, (p_timeseries_file, q_timeseries_file)) in pairs(loadshape_file_list)
+        load_p_base_value, load_q_base_value = loadshape_base_values[loadshape_name]
         p_timeseries = readdlm(normpath(joinpath(loadshape_reference_filename, "..", p_timeseries_file)))
         q_timeseries = readdlm(normpath(joinpath(loadshape_reference_filename, "..", q_timeseries_file)))
-        new_power_timeseries = (p_timeseries.^2 + q_timeseries.^2).^0.5
+        new_power_timeseries = ((load_p_base_value.*p_timeseries).^2 + (load_q_base_value.*q_timeseries).^2).^0.5
         if isnothing(power_timeseries)
             power_timeseries = new_power_timeseries
         else
@@ -327,7 +368,20 @@ function create_sum_of_loads_DAT_file()
     end
 
     # Write out DAT file with data
-    write_DAT_file(power_timeseries; DAT_file_name_suffix="_sum_of")
+    return write_DAT_file(power_timeseries; DAT_file_name_suffix="_sum_of")
+end
+
+function ensure_tpia_output_is_nonzero(slack_power_filename)
+    total_slack_power = 0
+    slack_power_file = open(slack_power_filename, "r")
+    for slack_power_line in readlines(slack_power_file)
+        line_values = split(slack_power_line, " ", keepempty=false)
+        if length(line_values) == 3 && line_values[2] == "total"
+            total_slack_power += parse(Float64, line_values[3])
+        end
+    end
+    close(slack_power_file)
+    @assert(total_slack_power != 0, "Slack power is zero")
 end
 
 function run_economic_opti_on_text(; DAT_file_name_suffix="")
@@ -373,26 +427,51 @@ optimal_system_details = get_optimal_system_details(economic_jump_model)
 obj_value = objective_value(economic_jump_model)
 # JuMP.solution_summary(economic_jump_model)
 
+# TODO add functionality to copy relevant files to be saved for later analysis
+
 #################################################################################################
 # CONFIGURATION 2: TPIA(single timestamp) → text output → Economic Opti(text output)            #
 #################################################################################################
-sf_math = create_PMD_mathematical_model(sf_casefile; time_series_to_run="not_yearly")
-# tpia_model = create_PMD_JuMP_model(sf_math, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
+sf_math_timestamp = create_PMD_mathematical_model(sf_casefile; time_series_to_run="daily")
+# tpia_model = create_PMD_JuMP_model(sf_math_timestamp, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
 # JuMP.optimize!(tpia_model)
 # JuMP.solution_summary(tpia_model)
-run_PMD_directly_and_write_result_to_file(sf_math, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, tighter_ipopt_optimizer; is_multinetwork=true)
+
+# debugging
+pmd_timestamp_LinDist3Flow_jump_model = create_PMD_JuMP_model(sf_math_timestamp, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, my_baron_optimizer)
+JuMP.optimize!(pmd_timestamp_LinDist3Flow_jump_model)
+total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_pg_", name(var))]
+total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_qg_", name(var))]
+total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
+
+pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mn_mc_tpia_L1, my_baron_optimizer)
+JuMP.optimize!(pmd_timestamp_ACPU_jump_model)
+total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_pg_", name(var))]
+total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_qg_", name(var))]
+total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
+total_p_slack = 
+
+pmd_timestamp_result_filename = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true)
+ensure_tpia_output_is_nonzero(pmd_timestamp_result_filename)
 
 economic_jump_model = run_economic_opti_on_text()
+optimal_system_details = get_optimal_system_details(economic_jump_model)
+obj_value = objective_value(economic_jump_model)
 # JuMP.solution_summary(economic_jump_model)
+
+# TODO add functionality to copy relevant files to be saved for later analysis
 
 #################################################################################################
 # CONFIGURATION 3: TPIA(one-year timestamp) → text output → Economic Opti(text output)          #
 #################################################################################################
 sf_math = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
-run_PMD_directly_and_write_result_to_file(sf_math, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, tighter_ipopt_optimizer; is_multinetwork=true)
+pmd_timeseries_result_filename = run_PMD_directly_and_write_result_to_file(sf_math, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true)
+ensure_tpia_output_is_nonzero(pmd_timeseries_result_filename)
 
 economic_jump_model = run_economic_opti_on_text()
 # JuMP.solution_summary(economic_jump_model)
+
+# TODO add functionality to copy relevant files to be saved for later analysis
 
 #################################################################################################
 # CONFIGURATION 4: TPIA(one-year timestamp) → Economic Opti(TPIA result variables)              #
@@ -405,12 +484,16 @@ connect_bi_level_model(bi_level_jump_model)
 JuMP.optimize!(bi_level_jump_model)
 # summarize_bilevel_opti_solution(bi_level_jump_model)
 
+# TODO add functionality to copy relevant files to be saved for later analysis
+
 #################################################################################################
 # CONFIGURATION 5: Equitable TPIA(one-year timestamp) → Economic Opti(TPIA result variables)    #
 #################################################################################################
 make_bilevel_JuMP_model_equity_aware(bi_level_jump_model)
 JuMP.optimize!(bi_level_jump_model)
 # JuMP.solution_summary(MOP_jump_model)
+
+# TODO add functionality to copy relevant files to be saved for later analysis
 
 #################################################################################################
 # CONFIGURATION 6: TPIA(one-year timestamp) → Multi Objective Opti(TPIA result variables)       #
@@ -419,6 +502,8 @@ bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
 make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_baron_optimizer)
 JuMP.optimize!(bi_level_jump_model)
 # JuMP.solution_summary(MOP_jump_model)
+
+# TODO add functionality to copy relevant files to be saved for later analysis
 
 #################################################################################################
 # CONFIGURATION 7: TPIA(multi-year timestamp) → Multi Objective Opti(TPIA result variables)     #
@@ -430,3 +515,5 @@ make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_baron_optimizer)
 JuMP.optimize!(bi_level_jump_model)
 # JuMP.solution_summary(bi_level_jump_model)
 reset_all_timeseries_files(single_year_timeseries_files)
+
+# TODO add functionality to copy relevant files to be saved for later analysis

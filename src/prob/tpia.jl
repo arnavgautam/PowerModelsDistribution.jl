@@ -16,22 +16,25 @@ end
 "Constructor for Three-Phase Infeasibility Analysis Problem"
 function build_mn_mc_tpia_L1(pm::AbstractUnbalancedPowerModel)
     for (n, network) in nws(pm)
-        variable_mc_bus_voltage(pm; nw=n, bounded=false)
-        variable_mc_branch_power(pm; nw=n, bounded=false)
-        variable_mc_switch_power(pm; nw=n, bounded=false)
-        variable_mc_transformer_power(pm; nw=n, bounded=false)
-        variable_mc_generator_power(pm; nw=n, bounded=false)
+        variable_mc_bus_voltage(pm; nw=n)#, bounded=false)
+        variable_mc_branch_power(pm; nw=n)#, bounded=false)
+        variable_mc_switch_power(pm; nw=n)#, bounded=false)
+        variable_mc_transformer_power(pm; nw=n)#, bounded=false)
+        variable_mc_generator_power(pm; nw=n)#, bounded=false)
         # @infiltrate
         # load_ids = 
         variable_mc_load_power(pm; nw=n)
         # variable_mc_load_power(pm; nw=n, bounded=true, report=true)
-        variable_mc_load_power(pm, collect(ids(pm, n, :load)); nw=n, bounded=true, report=true)
-        variable_mc_storage_power(pm; nw=n, bounded=false)
-
-        constraint_mc_model_voltage(pm; nw=n)
+        
+        # Is this needed?
+        # variable_mc_load_power(pm, collect(ids(pm, n, :load)); nw=n)#, bounded=true, report=true)
+        
+        variable_mc_storage_power(pm; nw=n)#, bounded=false)
 
         variable_mc_slack_bus_power_equity_weight(pm; nw=n)
         variable_mc_slack_bus_power_L1(pm; nw=n)
+
+        constraint_mc_model_voltage(pm; nw=n)
 
         for (i,bus) in ref(pm, n, :ref_buses)
             @assert bus["bus_type"] == 3
@@ -78,15 +81,34 @@ function build_mn_mc_tpia_L1(pm::AbstractUnbalancedPowerModel)
         for i in ids(pm, n, :branch)
             constraint_mc_ohms_yt_from(pm, i; nw=n)
             constraint_mc_ohms_yt_to(pm, i; nw=n)
+            constraint_mc_voltage_angle_difference(pm, i; nw=n)
+            constraint_mc_thermal_limit_from(pm, i; nw=n)
+            constraint_mc_thermal_limit_to(pm, i; nw=n)
+            constraint_mc_ampacity_from(pm, i; nw=n)
+            constraint_mc_ampacity_to(pm, i; nw=n)
         end
 
         for i in ids(pm, n, :switch)
             constraint_mc_switch_state(pm, i; nw=n)
+            constraint_mc_switch_thermal_limit(pm, i; nw=n)
+            constraint_mc_switch_ampacity(pm, i; nw=n)
         end
 
         for i in ids(pm, n, :transformer)
             constraint_mc_transformer_power(pm, i; nw=n)
         end
+    end
+
+    network_ids = sort(collect(nw_ids(pm)))
+
+    n_1 = network_ids[1]
+
+    for n_2 in network_ids[2:end]
+        for i in ids(pm, :storage; nw=n_2)
+            constraint_storage_state(pm, i, n_1, n_2)
+        end
+
+        n_1 = n_2
     end
 
     objective_mc_min_slack_bus_power_L1(pm)

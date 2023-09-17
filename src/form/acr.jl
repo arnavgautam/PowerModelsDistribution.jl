@@ -414,7 +414,7 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACRModel, nw
             - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
             - Pd[idx]
             - (vr.*(Gt*vr-Bt*vi) + vi.*(Gt*vi+Bt*vr))
-            + (p_slack_in[t] - p_slack_out[t])
+            + (p_slack_out[t] - p_slack_in[t])
         )
         push!(cstr_p, cp)
 
@@ -427,7 +427,7 @@ function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACRModel, nw
             + sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
             - Qd[idx]
             + ( vr[t] * cish - vi[t] * crsh)
-            + (q_slack_in[t] - q_slack_out[t])
+            + (q_slack_out[t] - q_slack_in[t])
         )
         push!(cstr_q, cq)
     end
