@@ -11,6 +11,8 @@ using Infiltrator
 import MultiObjectiveAlgorithms as MOA
 import MathOptInterface as MOI
 using DelimitedFiles
+using DataFrames
+using CSV
 
 #################################################################################################
 # Setting up information on the case study                                                      #
@@ -425,105 +427,157 @@ end
 #################################################################################################
 # CONFIGURATION 1: Economic Opti(sum(loads))                                                    #
 #################################################################################################
-create_sum_of_loads_DAT_file()
-economic_jump_model = run_economic_opti_on_text(; DAT_file_name_suffix="_sum_of")
-optimal_system_details = get_optimal_system_details(economic_jump_model)
-obj_value = objective_value(economic_jump_model)
+# create_sum_of_loads_DAT_file()
+# economic_jump_model = run_economic_opti_on_text(; DAT_file_name_suffix="_sum_of")
+# optimal_system_details = get_optimal_system_details(economic_jump_model)
+# obj_value = objective_value(economic_jump_model)
 # JuMP.solution_summary(economic_jump_model)
 
 # TODO add functionality to copy relevant files to be saved for later analysis
 
 #################################################################################################
-# CONFIGURATION 2: TPIA(single timestamp) → text output → Economic Opti(text output)            #
+# CONFIGURATION 2.1: TMPIA(single timestamp) → text output → Economic Opti(text output)         #
 #################################################################################################
 sf_math_timestamp = create_PMD_mathematical_model(sf_casefile; time_series_to_run="daily")
-# tpia_model = create_PMD_JuMP_model(sf_math_timestamp, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
-# JuMP.optimize!(tpia_model)
-# JuMP.solution_summary(tpia_model)
-
-# debugging
-pmd_timestamp_LinDist3Flow_jump_model = create_PMD_JuMP_model(sf_math_timestamp, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, my_baron_optimizer)
-JuMP.optimize!(pmd_timestamp_LinDist3Flow_jump_model)
-total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_pg_", name(var))]
-total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_qg_", name(var))]
-total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
-
-pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
+sf_math_timestamp["nw"]["0"]["gen"]["1"]["pmax"] = [0.0,0.0,0.0]
+sf_math_timestamp["nw"]["0"]["gen"]["1"]["pmin"] = [0.0,0.0,0.0]
+sf_math_timestamp["nw"]["0"]["gen"]["1"]["qmax"] = [0.0,0.0,0.0]
+sf_math_timestamp["nw"]["0"]["gen"]["1"]["qmin"] = [0.0,0.0,0.0]
+pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mc_tmpia, tighter_ipopt_optimizer)
 JuMP.optimize!(pmd_timestamp_ACPU_jump_model)
 total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_pg_", name(var))]
 total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_qg_", name(var))]
 total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
-total_p_slack = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_p_slack_in_", name(var))]
+p_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_p_slack_cap_", name(var))])
+q_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_q_slack_cap_", name(var))])
+# total_slack_power = (p_slack_cap.^2 + q_slack_cap.^2).^0.5
 
-LinDist3Flow_slack_power_timeseries_data = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true, write_to_DAT_file=false)
-@assert(sum(LinDist3Flow_slack_power_timeseries_data) != 0, "Slack power is zero")
+# slack_power_output_map = Dict()
+slack_power_df = DataFrame(bus_idx = Any[], slack_power = Float64[], phase_str = String[])
+for bus_idx in keys(sf_math_timestamp["nw"]["0"]["bus"])
+    p_slack_cap_val = 0
+    q_slack_cap_val = 0
+    multi_phase = true
+    phase_str = ""
+    for phase in ["[1]", "[2]", "[3]"]
+        p_slack_cap_var_name = string("0_p_slack_cap_", bus_idx, phase)
+        if haskey(p_slack_cap_dict, p_slack_cap_var_name)
+            phase_str *= phase
+            p_slack_cap_val += p_slack_cap_dict[p_slack_cap_var_name]
+        else
+            multi_phase = false
+        end
+        q_slack_cap_var_name = string("0_q_slack_cap_", bus_idx, phase)
+        if haskey(q_slack_cap_dict, q_slack_cap_var_name)
+            q_slack_cap_val += q_slack_cap_dict[q_slack_cap_var_name]
+        else
+            multi_phase = false
+        end
+    end
+    total_slack_power = (p_slack_cap_val.^2 + q_slack_cap_val.^2).^0.5
+    # slack_power_output_map[bus_idx] = total_slack_power
+    push!(slack_power_df, (bus_idx = bus_idx, slack_power = total_slack_power, phase_str = phase_str))
+end
 
-ACPU_slack_power_timeseries_data = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, ACPUPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true, write_to_DAT_file=false)
-@assert(sum(ACPU_slack_power_timeseries_data) != 0, "Slack power is zero")
+CSV.write("slack_power_output.csv", slack_power_df)
+
+# #################################################################################################
+# # CONFIGURATION 2: TPIA(single timestamp) → text output → Economic Opti(text output)            #
+# #################################################################################################
+# sf_math_timestamp = create_PMD_mathematical_model(sf_casefile; time_series_to_run="daily")
+
+# # Solve TPIA, either:
+
+#     # DIRECTLY
+#         # tpia_model = create_PMD_JuMP_model(sf_math_timestamp, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
+#         # JuMP.optimize!(tpia_model)
+#         # JuMP.solution_summary(tpia_model)
+
+#     # OR
+
+#     # DEBUGGING
+#         # pmd_timestamp_LinDist3Flow_jump_model = create_PMD_JuMP_model(sf_math_timestamp, LinDist3FlowPowerModel, build_mn_mc_tpia_L1, my_baron_optimizer)
+#         # JuMP.optimize!(pmd_timestamp_LinDist3Flow_jump_model)
+#         # total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_pg_", name(var))]
+#         # total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_LinDist3Flow_jump_model) if occursin("_qg_", name(var))]
+#         # total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
+
+#         pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mn_mc_tpia_L1, tighter_ipopt_optimizer)
+#         JuMP.optimize!(pmd_timestamp_ACPU_jump_model)
+#         total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_pg_", name(var))]
+#         total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_qg_", name(var))]
+#         total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
+#         total_p_slack = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_p_slack_in_", name(var))]
+
+# LinDist3Flow_slack_power_timeseries_data = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true, write_to_DAT_file=false)
+# @assert(sum(LinDist3Flow_slack_power_timeseries_data) != 0, "Slack power is zero")
+
+# ACPU_slack_power_timeseries_data = run_PMD_directly_and_write_result_to_file(sf_math_timestamp, ACPUPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true, write_to_DAT_file=false)
+# @assert(sum(ACPU_slack_power_timeseries_data) != 0, "Slack power is zero")
 
 
-# ensure_tpia_output_is_nonzero(pmd_timestamp_result_filename)
+# # ensure_tpia_output_is_nonzero(pmd_timestamp_result_filename)
 
-economic_jump_model = run_economic_opti_on_text()
-optimal_system_details = get_optimal_system_details(economic_jump_model)
-obj_value = objective_value(economic_jump_model)
-# JuMP.solution_summary(economic_jump_model)
+# economic_jump_model = run_economic_opti_on_text()
+# optimal_system_details = get_optimal_system_details(economic_jump_model)
+# obj_value = objective_value(economic_jump_model)
+# # JuMP.solution_summary(economic_jump_model)
 
-# TODO add functionality to copy relevant files to be saved for later analysis
+# # TODO add functionality to copy relevant files to be saved for later analysis
 
-#################################################################################################
-# CONFIGURATION 3: TPIA(one-year timestamp) → text output → Economic Opti(text output)          #
-#################################################################################################
-sf_math = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
-pmd_timeseries_result_filename = run_PMD_directly_and_write_result_to_file(sf_math, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true)
-ensure_tpia_output_is_nonzero(pmd_timeseries_result_filename)
+# #################################################################################################
+# # CONFIGURATION 3: TPIA(one-year timestamp) → text output → Economic Opti(text output)          #
+# #################################################################################################
+# sf_math = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
+# pmd_timeseries_result_filename = run_PMD_directly_and_write_result_to_file(sf_math, LinDist3FlowPowerModel, solve_mn_mc_tpia_L1, my_baron_optimizer; is_multinetwork=true)
+# ensure_tpia_output_is_nonzero(pmd_timeseries_result_filename)
 
-economic_jump_model = run_economic_opti_on_text()
-# JuMP.solution_summary(economic_jump_model)
+# economic_jump_model = run_economic_opti_on_text()
+# # JuMP.solution_summary(economic_jump_model)
 
-# TODO add functionality to copy relevant files to be saved for later analysis
+# # TODO add functionality to copy relevant files to be saved for later analysis
 
-#################################################################################################
-# CONFIGURATION 4: TPIA(one-year timestamp) → Economic Opti(TPIA result variables)              #
-#################################################################################################
-bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
-JuMP.optimize!(bi_level_jump_model)
-# summarize_bilevel_opti_solution(bi_level_jump_model)
+# #################################################################################################
+# # CONFIGURATION 4: TPIA(one-year timestamp) → Economic Opti(TPIA result variables)              #
+# #################################################################################################
+# bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
+# JuMP.optimize!(bi_level_jump_model)
+# # summarize_bilevel_opti_solution(bi_level_jump_model)
 
-connect_bi_level_model(bi_level_jump_model)
-JuMP.optimize!(bi_level_jump_model)
-# summarize_bilevel_opti_solution(bi_level_jump_model)
+# connect_bi_level_model(bi_level_jump_model)
+# JuMP.optimize!(bi_level_jump_model)
+# # summarize_bilevel_opti_solution(bi_level_jump_model)
 
-# TODO add functionality to copy relevant files to be saved for later analysis
+# # TODO add functionality to copy relevant files to be saved for later analysis
 
-#################################################################################################
-# CONFIGURATION 5: Equitable TPIA(one-year timestamp) → Economic Opti(TPIA result variables)    #
-#################################################################################################
-make_bilevel_JuMP_model_equity_aware(bi_level_jump_model)
-JuMP.optimize!(bi_level_jump_model)
-# JuMP.solution_summary(MOP_jump_model)
+# #################################################################################################
+# # CONFIGURATION 5: Equitable TPIA(one-year timestamp) → Economic Opti(TPIA result variables)    #
+# #################################################################################################
+# make_bilevel_JuMP_model_equity_aware(bi_level_jump_model)
+# JuMP.optimize!(bi_level_jump_model)
+# # JuMP.solution_summary(MOP_jump_model)
 
-# TODO add functionality to copy relevant files to be saved for later analysis
+# # TODO add functionality to copy relevant files to be saved for later analysis
 
-#################################################################################################
-# CONFIGURATION 6: TPIA(one-year timestamp) → Multi Objective Opti(TPIA result variables)       #
-#################################################################################################
-bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
-make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_baron_optimizer)
-JuMP.optimize!(bi_level_jump_model)
-# JuMP.solution_summary(MOP_jump_model)
+# #################################################################################################
+# # CONFIGURATION 6: TPIA(one-year timestamp) → Multi Objective Opti(TPIA result variables)       #
+# #################################################################################################
+# bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
+# make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_baron_optimizer)
+# JuMP.optimize!(bi_level_jump_model)
+# # JuMP.solution_summary(MOP_jump_model)
 
-# TODO add functionality to copy relevant files to be saved for later analysis
+# # TODO add functionality to copy relevant files to be saved for later analysis
 
-#################################################################################################
-# CONFIGURATION 7: TPIA(multi-year timestamp) → Multi Objective Opti(TPIA result variables)     #
-#################################################################################################
-single_year_timeseries_files = make_all_timeseries_files_multi_year()
-sf_math = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
-bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
-make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_baron_optimizer)
-JuMP.optimize!(bi_level_jump_model)
-# JuMP.solution_summary(bi_level_jump_model)
-reset_all_timeseries_files(single_year_timeseries_files)
+# #################################################################################################
+# # CONFIGURATION 7: TPIA(multi-year timestamp) → Multi Objective Opti(TPIA result variables)     #
+# #################################################################################################
+# single_year_timeseries_files = make_all_timeseries_files_multi_year()
+# sf_math = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
+# bi_level_jump_model = construct_bilevel_jump_model(my_baron_optimizer)
+# make_bilevel_JuMP_model_multi_objective(bi_level_jump_model, my_baron_optimizer)
+# JuMP.optimize!(bi_level_jump_model)
+# # JuMP.solution_summary(bi_level_jump_model)
+# reset_all_timeseries_files(single_year_timeseries_files)
 
-# TODO add functionality to copy relevant files to be saved for later analysis
+# # TODO add functionality to copy relevant files to be saved for later analysis

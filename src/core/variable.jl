@@ -1447,6 +1447,39 @@ end
 
 # slack power variables for TPIA L1 formulation
 
+"variables for the cap of `active` and `reactive` slack at each bus"
+function variable_mc_slack_bus_power_cap(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    variable_mc_slack_bus_power_real_cap(pm; nw=nw, report=report)
+    variable_mc_slack_bus_power_imaginary_cap(pm; nw=nw, report=report)
+end
+
+""
+function variable_mc_slack_bus_power_real_cap(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    p_slack_cap = var(pm, nw)[:p_slack_cap] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_p_slack_cap_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "p_slack_cap_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :p_slack_cap, ids(pm, nw, :bus), p_slack_cap)
+end
+
+
+""
+function variable_mc_slack_bus_power_imaginary_cap(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    q_slack_cap = var(pm, nw)[:q_slack_cap] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_q_slack_cap_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "q_slack_cap_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack_cap, ids(pm, nw, :bus), q_slack_cap)
+end
+
 "generates variables for both `active` and `reactive` slack at each bus going in each direction, making it linear"
 function variable_mc_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
     variable_mc_slack_bus_power_real_L1(pm; nw=nw, report=report)

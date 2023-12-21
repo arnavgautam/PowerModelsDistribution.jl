@@ -19,3 +19,5 @@ examples/*.toml
 examples/Native Power Flow - script.jl
 
 debug/
+
+test/data/arnav_data

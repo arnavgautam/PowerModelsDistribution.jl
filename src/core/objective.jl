@@ -32,6 +32,31 @@ function objective_mc_min_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel)
         )
 end
 
+"""
+objective_mc_min_slack_bus_power_cap(pm::AbstractUnbalancedPowerModel)
+
+a penalty for bus slack power cap.
+    c_n and cap values defined in nw 1, _in and _out values defined in each nw (each timestamp)
+"""
+function objective_mc_min_slack_bus_power_cap(pm::AbstractUnbalancedPowerModel)
+    c_n = Dict(i => get(bus, "equity_weight", 1000000000000.0) for (i,bus) in ref(pm, 1, :bus))
+    return JuMP.@objective(pm.model, Min,
+        sum(
+            sum(
+                sum( (var(pm, n, :p_slack_out, i)[t] - var(pm, n, :p_slack_in, i)[t]) ^ 2 + (var(pm, n, :q_slack_out, i)[t] - var(pm, n, :q_slack_in, i)[t]) ^ 2 for t in ref(pm, n, :bus, i, "terminals")
+                ) #* (i in axes(var(pm, n, :equity_weight))[1] ? var(pm, n, :equity_weight, i) : 0)
+                for (i,bus) in nw_ref[:bus]
+            ) for (n, nw_ref) in nws(pm)
+        )
+        +
+        sum(
+            sum(var(pm, 0, :p_slack_cap)[t] ^ 2 + var(pm, 0, :q_slack_cap)[t] ^ 2  for t in ref(pm, 0, :bus, i, "terminals")
+            ) * c_n[i]
+            for (i,bus) in nws(pm)[0][:bus]
+        )
+    )
+end
+
 
 """
     objective_mc_min_load_setpoint_delta(pm::AbstractUnbalancedPowerModel)

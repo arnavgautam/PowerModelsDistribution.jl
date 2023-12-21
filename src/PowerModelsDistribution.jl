@@ -131,6 +131,7 @@ module PowerModelsDistribution
     include("prob/native_pf.jl")
     include("prob/debug.jl")
     include("prob/tpia.jl")
+    include("prob/tmpia.jl")
     include("prob/test.jl")
     include("prob/osw.jl")
 
