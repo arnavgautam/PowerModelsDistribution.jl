@@ -438,152 +438,170 @@ end
 #################################################################################################
 # CONFIGURATION 2.1: TMPIA(single timestamp) → text output                                      #
 #################################################################################################
+function run_tmpia(math_model)
+    time_stamps = sort!(collect(keys(math_model["nw"])))
 
-if false
+    for timestamp in keys(math_model["nw"])
+        math_model["nw"][timestamp]["gen"]["1"]["pmax"] = [0.0,0.0,0.0]
+        math_model["nw"][timestamp]["gen"]["1"]["pmin"] = [0.0,0.0,0.0]
+        math_model["nw"][timestamp]["gen"]["1"]["qmax"] = [0.0,0.0,0.0]
+        math_model["nw"][timestamp]["gen"]["1"]["qmin"] = [0.0,0.0,0.0]
+    end
 
-    sf_math_timestamp = create_PMD_mathematical_model(sf_casefile; time_series_to_run="daily")
-    sf_math_timestamp["nw"]["0"]["gen"]["1"]["pmax"] = [0.0,0.0,0.0]
-    sf_math_timestamp["nw"]["0"]["gen"]["1"]["pmin"] = [0.0,0.0,0.0]
-    sf_math_timestamp["nw"]["0"]["gen"]["1"]["qmax"] = [0.0,0.0,0.0]
-    sf_math_timestamp["nw"]["0"]["gen"]["1"]["qmin"] = [0.0,0.0,0.0]
-    pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mc_tmpia, tighter_ipopt_optimizer)
-    JuMP.optimize!(pmd_timestamp_ACPU_jump_model)
-    total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_pg_", name(var))]
-    total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_qg_", name(var))]
+    pmd_ACPU_jump_model = create_PMD_JuMP_model(math_model, ACPUPowerModel, build_mc_tmpia, tighter_ipopt_optimizer)
+    JuMP.optimize!(pmd_ACPU_jump_model)
+    total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_pg_", name(var))]
+    total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_qg_", name(var))]
     total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
-    p_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_p_slack_cap_", name(var))])
-    q_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_q_slack_cap_", name(var))])
-    # total_slack_power = (p_slack_cap.^2 + q_slack_cap.^2).^0.5
+    p_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_p_slack_cap_", name(var))])
+    q_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_q_slack_cap_", name(var))])
 
-    # slack_power_output_map = Dict()
-    slack_power_df = DataFrame(bus_idx = Any[], slack_power = Float64[], phase_str = String[])
-    for bus_idx in keys(sf_math_timestamp["nw"]["0"]["bus"])
+
+    p_slack_in_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_p_slack_in_", name(var))])
+    p_slack_out_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_p_slack_out_", name(var))])
+    q_slack_in_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_q_slack_in_", name(var))])
+    q_slack_out_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_ACPU_jump_model) if occursin("_q_slack_out_", name(var))])
+
+
+    # slack_power_df_keys[:bus_idx] = nothing
+    # slack_power_df_keys[:slack_power_cap] = nothing
+    # slack_power_df_keys[:phase_str] = nothing
+
+    df_col_names = vcat([:bus_idx, :slack_power_cap, :phase_str], [Symbol(ts) for ts in time_stamps])
+    df_col_types = vcat([Any[], Float64[], String[]], fill(Float64[], length(time_stamps)))
+    slack_power_df_keys = Dict{Symbol, Any}(zip(df_col_names, df_col_types))
+
+    slack_power_df = DataFrame(slack_power_df_keys)
+    base_nw = time_stamps[1]
+
+    for bus_idx in keys(math_model["nw"][base_nw]["bus"])
         p_slack_cap_val = 0
         q_slack_cap_val = 0
         multi_phase = true
         phase_str = ""
         for phase in ["[1]", "[2]", "[3]"]
-            p_slack_cap_var_name = string("0_p_slack_cap_", bus_idx, phase)
+            p_slack_cap_var_name = string(base_nw, "_p_slack_cap_", bus_idx, phase)
             if haskey(p_slack_cap_dict, p_slack_cap_var_name)
                 phase_str *= phase
                 p_slack_cap_val += p_slack_cap_dict[p_slack_cap_var_name]
             else
                 multi_phase = false
             end
-            q_slack_cap_var_name = string("0_q_slack_cap_", bus_idx, phase)
+            q_slack_cap_var_name = string(base_nw, "_q_slack_cap_", bus_idx, phase)
             if haskey(q_slack_cap_dict, q_slack_cap_var_name)
                 q_slack_cap_val += q_slack_cap_dict[q_slack_cap_var_name]
             else
                 multi_phase = false
             end
         end
-        total_slack_power = (p_slack_cap_val.^2 + q_slack_cap_val.^2).^0.5
-        # slack_power_output_map[bus_idx] = total_slack_power
-        push!(slack_power_df, (bus_idx = bus_idx, slack_power = total_slack_power, phase_str = phase_str))
+        slack_power_cap = (p_slack_cap_val.^2 + q_slack_cap_val.^2).^0.5
+
+        slack_power_dict = Dict{Symbol, Any}()
+        slack_power_dict[:bus_idx] = bus_idx
+        slack_power_dict[:slack_power_cap] = slack_power_cap
+        slack_power_dict[:phase_str] = phase_str
+
+        for timestamp in time_stamps
+            p_slack_val = 0
+            q_slack_val = 0
+            # Create a new column for a new timestamp
+            for phase in ["[1]", "[2]", "[3]"]
+                p_slack_out_var_name = string(timestamp, "_p_slack_out_", bus_idx, phase)
+                if haskey(p_slack_out_dict, p_slack_out_var_name)
+                    p_slack_val += p_slack_out_dict[p_slack_out_var_name]
+                end
+                p_slack_in_var_name = string(timestamp, "_p_slack_in_", bus_idx, phase)
+                if haskey(p_slack_in_dict, p_slack_in_var_name)
+                    p_slack_val -= p_slack_in_dict[p_slack_in_var_name]
+                end
+                q_slack_out_var_name = string(timestamp, "_q_slack_out_", bus_idx, phase)
+                if haskey(q_slack_out_dict, q_slack_out_var_name)
+                    q_slack_val += q_slack_out_dict[q_slack_out_var_name]
+                end
+                q_slack_in_var_name = string(timestamp, "_q_slack_in_", bus_idx, phase)
+                if haskey(q_slack_in_dict, q_slack_in_var_name)
+                    q_slack_val -= q_slack_in_dict[q_slack_in_var_name]
+                end
+            end
+            slack_power_dict[Symbol(timestamp)] = (p_slack_val.^2 + q_slack_val.^2).^0.5    
+        end
+
+        push!(slack_power_df, slack_power_dict)
+
     end
 
-    CSV.write("slack_power_output.csv", slack_power_df)
+    return slack_power_df
+
+end
+
+
+if false
+
+    sf_math_timestamp = create_PMD_mathematical_model(sf_casefile; time_series_to_run="daily")
+
+    sf_timestamp_results_df = run_tmpia(sf_math_timestamp)
+
+    # sf_math_timestamp["nw"]["0"]["gen"]["1"]["pmax"] = [0.0,0.0,0.0]
+    # sf_math_timestamp["nw"]["0"]["gen"]["1"]["pmin"] = [0.0,0.0,0.0]
+    # sf_math_timestamp["nw"]["0"]["gen"]["1"]["qmax"] = [0.0,0.0,0.0]
+    # sf_math_timestamp["nw"]["0"]["gen"]["1"]["qmin"] = [0.0,0.0,0.0]
+    # pmd_timestamp_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timestamp, ACPUPowerModel, build_mc_tmpia, tighter_ipopt_optimizer)
+    # JuMP.optimize!(pmd_timestamp_ACPU_jump_model)
+
+    # Re comment all this when not debugging
+    # total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_pg_", name(var))]
+    # total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_qg_", name(var))]
+    # total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
+    # p_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_p_slack_cap_", name(var))])
+    # q_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timestamp_ACPU_jump_model) if occursin("_q_slack_cap_", name(var))])
+    # # total_slack_power = (p_slack_cap.^2 + q_slack_cap.^2).^0.5
+
+    # # slack_power_output_map = Dict()
+    # slack_power_df = DataFrame(bus_idx = Any[], slack_power = Float64[], phase_str = String[])
+    # for bus_idx in keys(sf_math_timestamp["nw"]["0"]["bus"])
+    #     p_slack_cap_val = 0
+    #     q_slack_cap_val = 0
+    #     multi_phase = true
+    #     phase_str = ""
+    #     for phase in ["[1]", "[2]", "[3]"]
+    #         p_slack_cap_var_name = string("0_p_slack_cap_", bus_idx, phase)
+    #         if haskey(p_slack_cap_dict, p_slack_cap_var_name)
+    #             phase_str *= phase
+    #             p_slack_cap_val += p_slack_cap_dict[p_slack_cap_var_name]
+    #         else
+    #             multi_phase = false
+    #         end
+    #         q_slack_cap_var_name = string("0_q_slack_cap_", bus_idx, phase)
+    #         if haskey(q_slack_cap_dict, q_slack_cap_var_name)
+    #             q_slack_cap_val += q_slack_cap_dict[q_slack_cap_var_name]
+    #         else
+    #             multi_phase = false
+    #         end
+    #     end
+    #     total_slack_power = (p_slack_cap_val.^2 + q_slack_cap_val.^2).^0.5
+    #     # slack_power_output_map[bus_idx] = total_slack_power
+    #     push!(slack_power_df, (bus_idx = bus_idx, slack_power = total_slack_power, phase_str = phase_str))
+    # end
+
+    # End commenting
+
+    CSV.write("slack_power_output_timestamp.csv", sf_timestamp_results_df)
 
 end
 
 #################################################################################################
 # CONFIGURATION 2.2: TMPIA(timeseries) → text output                                            #
 #################################################################################################
-sf_math_timeseries = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
 
-time_stamps = sort!(collect(keys(sf_math_timeseries["nw"])))
+if true
 
-for timestamp in keys(sf_math_timeseries["nw"])
-    sf_math_timeseries["nw"][timeseries]["gen"]["1"]["pmax"] = [0.0,0.0,0.0]
-    sf_math_timeseries["nw"][timeseries]["gen"]["1"]["pmin"] = [0.0,0.0,0.0]
-    sf_math_timeseries["nw"][timeseries]["gen"]["1"]["qmax"] = [0.0,0.0,0.0]
-    sf_math_timeseries["nw"][timeseries]["gen"]["1"]["qmin"] = [0.0,0.0,0.0]
-end
+    sf_math_timeseries = create_PMD_mathematical_model(sf_casefile; time_series_to_run="yearly")
 
-pmd_timeseries_ACPU_jump_model = create_PMD_JuMP_model(sf_math_timeseries, ACPUPowerModel, build_mc_tmpia, my_ipopt_optimizer)
-JuMP.optimize!(pmd_timeseries_ACPU_jump_model)
-total_pg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_pg_", name(var))]
-total_qg = [JuMP.value(var) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_qg_", name(var))]
-total_power_generated = (total_pg.^2 + total_qg.^2).^0.5
-p_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_p_slack_cap_", name(var))])
-q_slack_cap_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_q_slack_cap_", name(var))])
+    sf_timeseries_results_df = run_tmpia(sf_math_timeseries)
 
-
-p_slack_in_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_p_slack_in_", name(var))])
-p_slack_out_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_p_slack_out_", name(var))])
-q_slack_in_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_q_slack_in_", name(var))])
-q_slack_out_dict = Dict([(name(var),JuMP.value(var)) for var in JuMP.all_variables(pmd_timeseries_ACPU_jump_model) if occursin("_q_slack_out_", name(var))])
-
-
-# slack_power_df_keys[:bus_idx] = nothing
-# slack_power_df_keys[:slack_power_cap] = nothing
-# slack_power_df_keys[:phase_str] = nothing
-
-df_col_names = vcat([:bus_idx, :slack_power_cap, :phase_str], [Symbol(ts) for ts in time_stamps])
-df_col_types = vcat([Any[], Float64[], String[]], fill(Float64[], length(time_stamps)))
-slack_power_df_keys = Dict{Symbol, Any}(zip(df_col_names, df_col_types))
-
-slack_power_df = DataFrame(slack_power_df_keys)
-base_nw = time_stamps[1]
-
-for bus_idx in keys(sf_math_timeseries["nw"][base_nw]["bus"])
-    p_slack_cap_val = 0
-    q_slack_cap_val = 0
-    multi_phase = true
-    phase_str = ""
-    for phase in ["[1]", "[2]", "[3]"]
-        p_slack_cap_var_name = string(base_nw, "_p_slack_cap_", bus_idx, phase)
-        if haskey(p_slack_cap_dict, p_slack_cap_var_name)
-            phase_str *= phase
-            p_slack_cap_val += p_slack_cap_dict[p_slack_cap_var_name]
-        else
-            multi_phase = false
-        end
-        q_slack_cap_var_name = string(base_nw, "_q_slack_cap_", bus_idx, phase)
-        if haskey(q_slack_cap_dict, q_slack_cap_var_name)
-            q_slack_cap_val += q_slack_cap_dict[q_slack_cap_var_name]
-        else
-            multi_phase = false
-        end
-    end
-    slack_power_cap = (p_slack_cap_val.^2 + q_slack_cap_val.^2).^0.5
-
-    slack_power_dict = Dict{Symbol, Any}()
-    slack_power_dict[:bus_idx] = bus_idx
-    slack_power_dict[:slack_power_cap] = slack_power_cap
-    slack_power_dict[:phase_str] = phase_str
-
-    for timestamp in time_stamps
-        p_slack_val = 0
-        q_slack_val = 0
-        # Create a new column for a new timestamp
-        for phase in ["[1]", "[2]", "[3]"]
-            p_slack_out_var_name = string(timestamp, "_p_slack_out_", bus_idx, phase)
-            if haskey(p_slack_out_dict, p_slack_out_var_name)
-                p_slack_val += p_slack_out_dict[p_slack_out_var_name]
-            end
-            p_slack_in_var_name = string(timestamp, "_p_slack_in_", bus_idx, phase)
-            if haskey(p_slack_in_dict, p_slack_in_var_name)
-                p_slack_val -= p_slack_in_dict[p_slack_in_var_name]
-            end
-            q_slack_out_var_name = string(timestamp, "_q_slack_out_", bus_idx, phase)
-            if haskey(q_slack_out_dict, q_slack_out_var_name)
-                q_slack_val += q_slack_out_dict[q_slack_out_var_name]
-            end
-            q_slack_in_var_name = string(timestamp, "_q_slack_in_", bus_idx, phase)
-            if haskey(q_slack_in_dict, q_slack_in_var_name)
-                q_slack_val -= q_slack_in_dict[q_slack_in_var_name]
-            end
-        end
-        slack_power_dict[Symbol(timestamp)] = (p_slack_val.^2 + q_slack_val.^2).^0.5    
-    end
-
-    push!(slack_power_df, slack_power_dict)
+    CSV.write("slack_power_output_timeseries.csv", sf_timeseries_results_df)
 
 end
-
-
-CSV.write("slack_power_output_timeseries.csv", slack_power_df)
 
 # #################################################################################################
 # # CONFIGURATION 2: TPIA(single timestamp) → text output → Economic Opti(text output)            #

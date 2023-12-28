@@ -8,7 +8,7 @@ function build_mc_tmpia(pm::AbstractUnbalancedPowerModel)
     
     # This variable should have one instance used in all constraints involving a cap on slack power
     base_nw = sort!(collect(keys(nws(pm))))[1]
-    variable_mc_slack_bus_power_cap(pm; nw=base_nw)
+    variable_mc_slack_bus_power_cap(pm; nw=base_nw) # L1 version is split in 2 different variables, but not needed
 
     for (n, network) in nws(pm)
         println(string("network is ", n))
@@ -44,7 +44,7 @@ function build_mc_tmpia(pm::AbstractUnbalancedPowerModel)
 
         for (i,bus) in ref(pm, :bus; nw=n)
             constraint_mc_power_balance_slack_L1(pm, i; nw=n)
-            constraint_mc_power_balance_slack_cap(pm, i; nw=n)
+            constraint_mc_power_balance_slack_cap(pm, i; nw=n) # L1 version of this is not needed
 
             # PV Bus Constraints
             if (length(ref(pm, :bus_gens, i; nw=n)) > 0 || length(ref(pm, :bus_storages, i; nw=n)) > 0) && !(i in ids(pm,:ref_buses; nw=n))
@@ -82,7 +82,7 @@ function build_mc_tmpia(pm::AbstractUnbalancedPowerModel)
         end
     end
 
-    objective_mc_min_slack_bus_power_L1(pm)
+    objective_mc_min_slack_bus_power_cap_L1(pm)
 end
 
 

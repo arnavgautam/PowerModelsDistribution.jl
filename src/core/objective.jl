@@ -33,13 +33,16 @@ function objective_mc_min_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel)
 end
 
 """
-objective_mc_min_slack_bus_power_cap(pm::AbstractUnbalancedPowerModel)
+objective_mc_min_slack_bus_power_cap_L1(pm::AbstractUnbalancedPowerModel)
 
 a penalty for bus slack power cap.
     c_n and cap values defined in nw 1, _in and _out values defined in each nw (each timestamp)
 """
-function objective_mc_min_slack_bus_power_cap(pm::AbstractUnbalancedPowerModel)
-    c_n = Dict(i => get(bus, "equity_weight", 1000000000000.0) for (i,bus) in ref(pm, 1, :bus))
+function objective_mc_min_slack_bus_power_cap_L1(pm::AbstractUnbalancedPowerModel)
+    time_stamps = sort!(collect(keys(nws(pm))))
+    base_nw = time_stamps[1]
+
+    c_n = Dict(i => get(bus, "equity_weight", 1.0) for (i,bus) in ref(pm, base_nw, :bus))
     return JuMP.@objective(pm.model, Min,
         sum(
             sum(
@@ -50,9 +53,9 @@ function objective_mc_min_slack_bus_power_cap(pm::AbstractUnbalancedPowerModel)
         )
         +
         sum(
-            sum(var(pm, 0, :p_slack_cap)[t] ^ 2 + var(pm, 0, :q_slack_cap)[t] ^ 2  for t in ref(pm, 0, :bus, i, "terminals")
+            sum(var(pm, base_nw, :p_slack_cap, i)[t]  + var(pm, base_nw, :q_slack_cap, i)[t] for t in ref(pm, base_nw, :bus, i, "terminals")
             ) * c_n[i]
-            for (i,bus) in nws(pm)[0][:bus]
+            for (i,bus) in nws(pm)[1][:bus]
         )
     )
 end

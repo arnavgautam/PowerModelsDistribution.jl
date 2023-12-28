@@ -237,6 +237,49 @@ function constraint_mc_power_balance_slack_cap(pm::AbstractUnbalancedACPModel, n
 
 end
 
+function constraint_mc_power_balance_slack_cap_L1(pm::AbstractUnbalancedACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
+    base_nw = sort!(collect(keys(nws(pm))))[1]
+    
+    p_slack_in = var(pm, nw, :p_slack_in, i)
+    p_slack_out = var(pm, nw, :p_slack_out, i)
+    q_slack_in = var(pm, nw, :q_slack_in, i)
+    q_slack_out = var(pm, nw, :q_slack_out, i)
+    # Slack cap variables are only in network base_nw
+    p_slack_in_cap = var(pm, base_nw, :p_slack_in_cap, i)
+    p_slack_out_cap = var(pm, base_nw, :p_slack_out_cap, i)
+    q_slack_in_cap = var(pm, base_nw, :q_slack_in_cap, i)
+    q_slack_out_cap = var(pm, base_nw, :q_slack_out_cap, i)
+
+    cstr_p = []
+    cstr_q = []
+
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx,t) in ungrounded_terminals
+
+        cp = JuMP.@NLconstraint(pm.model,
+            p_slack_out[t] - p_slack_in[t]
+            <=
+            p_slack_out_cap[t] - p_slack_in_cap[t])
+        push!(cstr_p, cp)
+
+        cq = JuMP.@NLconstraint(pm.model,
+            q_slack_out[t] - q_slack_in[t]
+            <=
+            q_slack_out_cap[t] - q_slack_in_cap[t])
+        push!(cstr_q, cq)
+    end
+    
+    con(pm, nw, :lam_slack_power_cap_r)[i] = cstr_p
+    con(pm, nw, :lam_slack_power_cap_i)[i] = cstr_q
+
+    if _IM.report_duals(pm)
+        sol(pm, nw, :bus, i)[:lam_slack_power_cap_r] = cstr_p
+        sol(pm, nw, :bus, i)[:lam_slack_power_cap_i] = cstr_q
+    end
+
+end
+
 
 ""
 function constraint_mc_power_balance_slack_L1(pm::AbstractUnbalancedACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})

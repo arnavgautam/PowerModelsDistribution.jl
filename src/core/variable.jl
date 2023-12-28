@@ -1481,6 +1481,109 @@ function variable_mc_slack_bus_power_imaginary_cap(pm::AbstractUnbalancedPowerMo
 end
 
 "generates variables for both `active` and `reactive` slack at each bus going in each direction, making it linear"
+function variable_mc_slack_bus_power_cap_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    variable_mc_slack_bus_power_real_cap_L1(pm; nw=nw, report=report)
+    variable_mc_slack_bus_power_imaginary_cap_L1(pm; nw=nw, report=report)
+end
+
+
+""
+function variable_mc_slack_bus_power_real_cap_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    p_slack_in_cap = var(pm, nw)[:p_slack_in_cap] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_p_slack_in_cap_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "p_slack_in_cap_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :p_slack_in_cap, ids(pm, nw, :bus), p_slack_in_cap)
+
+    p_slack_out_cap = var(pm, nw)[:p_slack_out_cap] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_p_slack_out_cap_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "p_slack_out_cap_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :p_slack_out_cap, ids(pm, nw, :bus), p_slack_out_cap)
+
+    for i in ids(pm, nw, :bus)
+
+        cstr_p = []
+
+        for t in terminals[i]
+    
+            cp = JuMP.@NLconstraint(pm.model,
+                p_slack_in_cap[i][t]
+                <=
+                p_slack_out_cap[i][t])
+            push!(cstr_p, cp)
+    
+        end
+
+        if !haskey(con(pm, nw), :lam_slack_power_cap_r_L1_order)
+            con(pm, nw)[:lam_slack_power_cap_r_L1_order] = Dict{Int,Array{JuMP.ConstraintRef}}()
+        end
+    
+        con(pm, nw, :lam_slack_power_cap_r_L1_order)[i] = cstr_p
+        
+        if _IM.report_duals(pm)
+            sol(pm, nw, :bus, i)[:lam_slack_power_cap_r_L1_order] = cstr_p
+        end
+    end
+
+end
+
+
+""
+function variable_mc_slack_bus_power_imaginary_cap_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
+    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    q_slack_in_cap = var(pm, nw)[:q_slack_in_cap] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_q_slack_in_cap_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "q_slack_in_cap_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack_in_cap, ids(pm, nw, :bus), q_slack_in_cap)
+    
+    q_slack_out_cap = var(pm, nw)[:q_slack_out_cap] = Dict(i => JuMP.@variable(pm.model,
+            [t in terminals[i]], base_name="$(nw)_q_slack_out_cap_$(i)",
+            lower_bound = 0.0,
+            start = comp_start_value(ref(pm, nw, :bus, i), "q_slack_out_cap_start", t, 0.0)
+        ) for i in ids(pm, nw, :bus)
+    )
+
+    report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack_out_cap, ids(pm, nw, :bus), q_slack_out_cap)
+
+    for i in ids(pm, nw, :bus)
+
+        cstr_q = []
+
+        for t in terminals[i]
+
+            cq = JuMP.@NLconstraint(pm.model,
+                q_slack_in_cap[i][t]
+                <=
+                q_slack_out_cap[i][t])
+            push!(cstr_q, cq)
+
+        end
+
+        if !haskey(con(pm, nw), :lam_slack_power_cap_i_L1_order)
+            con(pm, nw)[:lam_slack_power_cap_i_L1_order] = Dict{Int,Array{JuMP.ConstraintRef}}()
+        end
+
+        con(pm, nw, :lam_slack_power_cap_i_L1_order)[i] = cstr_q
+        
+        if _IM.report_duals(pm)
+            sol(pm, nw, :bus, i)[:lam_slack_power_cap_i_L1_order] = cstr_q
+        end
+    end
+end
+
+"generates variables for both `active` and `reactive` slack at each bus going in each direction, making it linear"
 function variable_mc_slack_bus_power_L1(pm::AbstractUnbalancedPowerModel; nw::Int=nw_id_default, report::Bool=true)
     variable_mc_slack_bus_power_real_L1(pm; nw=nw, report=report)
     variable_mc_slack_bus_power_imaginary_L1(pm; nw=nw, report=report)
@@ -1507,6 +1610,32 @@ function variable_mc_slack_bus_power_real_L1(pm::AbstractUnbalancedPowerModel; n
     )
 
     report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :p_slack_out, ids(pm, nw, :bus), p_slack_out)
+
+    for i in ids(pm, nw, :bus)
+
+        cstr_p = []
+
+        for t in terminals[i]
+
+            cp = JuMP.@NLconstraint(pm.model,
+                p_slack_in[i][t]
+                <=
+                p_slack_out[i][t])
+            push!(cstr_p, cp)
+
+        end
+
+        if !haskey(con(pm, nw), :lam_slack_power_r_L1_order)
+            con(pm, nw)[:lam_slack_power_r_L1_order] = Dict{Int,Array{JuMP.ConstraintRef}}()
+        end
+
+        con(pm, nw, :lam_slack_power_r_L1_order)[i] = cstr_p
+        
+        if _IM.report_duals(pm)
+            sol(pm, nw, :bus, i)[:lam_slack_power_r_L1_order] = cstr_p
+        end
+
+    end
 end
 
 
@@ -1530,6 +1659,32 @@ function variable_mc_slack_bus_power_imaginary_L1(pm::AbstractUnbalancedPowerMod
     )
 
     report && _IM.sol_component_value(pm, pmd_it_sym, nw, :bus, :q_slack_out, ids(pm, nw, :bus), q_slack_out)
+
+    for i in ids(pm, nw, :bus)
+
+        cstr_q = []
+
+        for t in terminals[i]
+
+            cq = JuMP.@NLconstraint(pm.model,
+                q_slack_in[i][t]
+                <=
+                q_slack_out[i][t])
+            push!(cstr_q, cq)
+
+        end
+
+        if !haskey(con(pm, nw), :lam_slack_power_i_L1_order)
+            con(pm, nw)[:lam_slack_power_i_L1_order] = Dict{Int,Array{JuMP.ConstraintRef}}()
+        end
+
+        con(pm, nw, :lam_slack_power_i_L1_order)[i] = cstr_q
+        
+        if _IM.report_duals(pm)
+            sol(pm, nw, :bus, i)[:lam_slack_power_i_L1_order] = cstr_q
+        end
+
+    end
 end
 
 "generates and assigns variables for the equity weighting of slack power at each bus"
