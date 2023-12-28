@@ -197,13 +197,15 @@ function constraint_mc_power_balance_slack(pm::AbstractUnbalancedACPModel, nw::I
 end
 
 function constraint_mc_power_balance_slack_cap(pm::AbstractUnbalancedACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
+    base_nw = sort!(collect(keys(nws(pm))))[1]
+    
     p_slack_in = var(pm, nw, :p_slack_in, i)
     p_slack_out = var(pm, nw, :p_slack_out, i)
     q_slack_in = var(pm, nw, :q_slack_in, i)
     q_slack_out = var(pm, nw, :q_slack_out, i)
-    # Slack cap variables are only in network 0
-    p_slack_cap = var(pm, 0, :p_slack_cap, i)
-    q_slack_cap = var(pm, 0, :q_slack_cap, i)
+    # Slack cap variables are only in network base_nw
+    p_slack_cap = var(pm, base_nw, :p_slack_cap, i)
+    q_slack_cap = var(pm, base_nw, :q_slack_cap, i)
 
     cstr_p = []
     cstr_q = []

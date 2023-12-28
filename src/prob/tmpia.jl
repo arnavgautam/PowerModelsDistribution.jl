@@ -7,7 +7,8 @@ end
 function build_mc_tmpia(pm::AbstractUnbalancedPowerModel)
     
     # This variable should have one instance used in all constraints involving a cap on slack power
-    variable_mc_slack_bus_power_cap(pm; nw=0)
+    base_nw = sort!(collect(keys(nws(pm))))[1]
+    variable_mc_slack_bus_power_cap(pm; nw=base_nw)
 
     for (n, network) in nws(pm)
         println(string("network is ", n))
@@ -24,7 +25,7 @@ function build_mc_tmpia(pm::AbstractUnbalancedPowerModel)
         variable_mc_slack_bus_power_L1(pm; nw=n)
         # variable_mc_slack_bus_power_equity_weight(pm) # Add back when incorporating as c_n variable
         
-        for (i,bus) in ref(pm, :ref_buses)
+        for (i,bus) in ref(pm, :ref_buses; nw=n)
             @assert bus["bus_type"] == 3
 
             constraint_mc_theta_ref(pm, i; nw=n)
@@ -32,51 +33,51 @@ function build_mc_tmpia(pm::AbstractUnbalancedPowerModel)
         end
 
         # gens should be constrained before KCL, or Pd/Qd undefined
-        for id in ids(pm, :gen)
+        for id in ids(pm, :gen; nw=n)
             constraint_mc_generator_power(pm, id; nw=n)
         end
 
         # loads should be constrained before KCL, or Pd/Qd undefined
-        for id in ids(pm, :load)
+        for id in ids(pm, :load; nw=n)
             constraint_mc_load_power(pm, id; nw=n)
         end
 
-        for (i,bus) in ref(pm, :bus)
+        for (i,bus) in ref(pm, :bus; nw=n)
             constraint_mc_power_balance_slack_L1(pm, i; nw=n)
             constraint_mc_power_balance_slack_cap(pm, i; nw=n)
 
             # PV Bus Constraints
-            if (length(ref(pm, :bus_gens, i)) > 0 || length(ref(pm, :bus_storages, i)) > 0) && !(i in ids(pm,:ref_buses))
+            if (length(ref(pm, :bus_gens, i; nw=n)) > 0 || length(ref(pm, :bus_storages, i; nw=n)) > 0) && !(i in ids(pm,:ref_buses; nw=n))
                 # this assumes inactive generators are filtered out of bus_gens
                 @assert bus["bus_type"] == 2
 
                 constraint_mc_voltage_magnitude_only(pm, i; nw=n)
-                for j in ref(pm, :bus_gens, i)
+                for j in ref(pm, :bus_gens, i; nw=n)
                     constraint_mc_gen_power_setpoint_real(pm, j; nw=n)
                 end
-                for j in ref(pm, :bus_storages, i)
+                for j in ref(pm, :bus_storages, i; nw=n)
                     constraint_mc_storage_power_setpoint_real(pm, j; nw=n)
                 end
             end
         end
 
-        for i in ids(pm, :storage)
+        for i in ids(pm, :storage; nw=n)
             constraint_storage_state(pm, i; nw=n)
             constraint_storage_complementarity_nl(pm, i; nw=n)
             constraint_mc_storage_losses(pm, i; nw=n)
             constraint_mc_storage_thermal_limit(pm, i; nw=n)
         end
 
-        for i in ids(pm, :branch)
+        for i in ids(pm, :branch; nw=n)
             constraint_mc_ohms_yt_from(pm, i; nw=n)
             constraint_mc_ohms_yt_to(pm, i; nw=n)
         end
 
-        for i in ids(pm, :switch)
+        for i in ids(pm, :switch; nw=n)
             constraint_mc_switch_state(pm, i; nw=n)
         end
 
-        for i in ids(pm, :transformer)
+        for i in ids(pm, :transformer; nw=n)
             constraint_mc_transformer_power(pm, i; nw=n)
         end
     end
